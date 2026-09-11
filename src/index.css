@@ -72,7 +72,9 @@ body {
 #root {
   height: 100vh; /* fallback for browsers without dvh */
   height: 100dvh;
-  max-width: 880px;
+  /* Landscape-first: use the horizontal space (stacking is handled per
+   * component below for narrow/portrait screens). */
+  max-width: 1040px;
   margin: 0 auto;
   padding:
     max(10px, env(safe-area-inset-top))
@@ -106,14 +108,22 @@ h3 {
   min-height: 0;
 }
 
+/*
+ * Landscape-first: the header is one horizontal row — title + tagline on
+ * the left, the nav pushed to the right edge.
+ */
 .app-header {
   flex: none;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .app-header h1 {
-  font-size: 32px;
+  font-size: 28px;
   letter-spacing: -0.5px;
+  margin: 0;
 }
 
 .logo {
@@ -122,12 +132,13 @@ h3 {
 
 .tagline {
   color: var(--text-soft);
-  margin: 0 0 12px;
+  margin: 0;
+  font-size: 14px;
 }
 
 .app-nav {
   display: flex;
-  justify-content: center;
+  margin-left: auto;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -257,11 +268,16 @@ h3 {
 
 /* ---- Exercise ---- */
 
+/*
+ * One centered row: progress left, badge next, selection note fills the
+ * middle (ellipsized — its full text is the title tooltip), and Stoppen
+ * floats on the right edge.
+ */
 .exercise-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   color: var(--text-soft);
   font-size: 14px;
 }
@@ -299,18 +315,52 @@ h3 {
 }
 
 .selection-note {
-  flex-basis: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.stop-button {
+  margin-left: auto;
+}
+
+/*
+ * Landscape: the card is two columns — visual (title, instruction,
+ * widget) on the left, the working area (steps, answer, feedback, help)
+ * on the right. Narrow/portrait screens stack the columns.
+ */
 .exercise-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 22px;
   box-shadow: var(--shadow);
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 10px 28px;
+  align-items: start;
+}
+
+.exercise-visual {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
+  min-width: 0;
+}
+
+.exercise-work {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+@media (max-width: 899px) {
+  .exercise-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .exercise-title {
@@ -545,7 +595,7 @@ h3 {
 }
 
 .widget-scroll svg {
-  min-width: 560px;
+  min-width: 480px;
 }
 
 .widget-svg {
@@ -1169,5 +1219,49 @@ main {
   .btn.big {
     font-size: 15px;
     padding: 8px 20px;
+  }
+}
+
+/*
+ * ---- Landscape tablets (≥900px wide): use the horizontal space ----
+ * Deliberately placed after the compact-height tiers so the landscape
+ * gutters win when both apply (e.g. 1024×768).
+ */
+@media (min-width: 900px) {
+  /* Home: hero beside the stacked stat cards. */
+  .home {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: center;
+  }
+
+  .home .stats-row {
+    margin-top: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Exercise card: keep a generous column gutter even in compact-height
+     modes (their tighter gap targets the stacked portrait layout). */
+  .exercise-card {
+    column-gap: 28px;
+  }
+
+  /* Progress: two theme islands side by side. */
+  .islands {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  /* Settings: cards flow into columns. */
+  .settings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    align-items: start;
+    gap: 14px;
+  }
+
+  .settings > h2 {
+    grid-column: 1 / -1;
   }
 }

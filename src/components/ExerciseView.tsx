@@ -123,104 +123,110 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
             {store.lastSelectionExplanation}
           </span>
         )}
-        <button type="button" className="btn ghost small" onClick={() => store.endSession()}>
+        <button type="button" className="btn ghost small stop-button" onClick={() => store.endSession()}>
           Stoppen
         </button>
       </header>
 
       <section className="exercise-card">
-        <h2 className="exercise-title">{skill.titleNl}</h2>
-        <p className="exercise-instruction">{exercise.instructionNl}</p>
+        <div className="exercise-visual">
+          <h2 className="exercise-title">{skill.titleNl}</h2>
+          <p className="exercise-instruction">{exercise.instructionNl}</p>
 
-        <ExerciseWidget widget={exercise.widget} />
+          <ExerciseWidget widget={exercise.widget} />
+        </div>
 
-        {!allSolved && (
-          <div className="step-area">
-            <ol className="step-list">
-              {exercise.steps.map((s, i) => {
-                const navigable = solved[i] || i === stepIndex
-                return (
-                  <li key={s.id}>
-                    <button
-                      type="button"
-                      className={`step ${i === stepIndex ? 'active' : ''} ${solved[i] ? 'solved' : ''}`}
-                      disabled={!navigable}
-                      aria-current={i === stepIndex ? 'step' : undefined}
-                      onClick={() => {
-                        if (navigable) setStepIndex(i)
-                      }}
-                    >
-                      <span className="step-num" aria-hidden>
-                        {solved[i] ? '✓' : i + 1}
-                      </span>
-                      <span className="step-prompt">{s.promptNl}</span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ol>
+        <div className="exercise-work">
+          {!allSolved && (
+            <div className="step-area">
+              <ol className="step-list">
+                {exercise.steps.map((s, i) => {
+                  const navigable = solved[i] || i === stepIndex
+                  return (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        className={`step ${i === stepIndex ? 'active' : ''} ${solved[i] ? 'solved' : ''}`}
+                        disabled={!navigable}
+                        aria-current={i === stepIndex ? 'step' : undefined}
+                        onClick={() => {
+                          if (navigable) setStepIndex(i)
+                        }}
+                      >
+                        <span className="step-num" aria-hidden>
+                          {solved[i] ? '✓' : i + 1}
+                        </span>
+                        <span className="step-prompt">{s.promptNl}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
 
-            <div className="answer-area" ref={answerAreaRef}>
-              <StepInput
-                step={step}
-                exercise={exercise}
-                value={answer}
-                onChange={setAnswer}
-                onSubmit={submit}
-              />
-              <button type="button" className="btn primary" onClick={submit} disabled={!canSubmit}>
-                Controleer
-              </button>
-            </div>
-
-            {feedback && (
-              <div
-                className={`feedback ${
-                  feedback.isCorrect ? 'correct' : feedback.invalidFormat ? 'invalid' : 'incorrect'
-                }`}
-                role="status"
-              >
-                {feedback.isCorrect ? '✅ ' : feedback.invalidFormat ? '✍️ ' : '💡 '}
-                {feedback.feedbackNl}
+              <div className="answer-area" ref={answerAreaRef}>
+                <StepInput
+                  step={step}
+                  exercise={exercise}
+                  value={answer}
+                  onChange={setAnswer}
+                  onSubmit={submit}
+                />
+                <button type="button" className="btn primary" onClick={submit} disabled={!canSubmit}>
+                  Controleer
+                </button>
               </div>
-            )}
 
-            <div className="help-row">
-              <button type="button" className="btn ghost" onClick={requestHint}>
-                💡 Hint
-              </button>
-              {hint && (
-                <div className="hint-box" aria-live="polite">
-                  {hint}
-                  {session.hintLevel >= 4 && <div className="hint-solution">Oplossing: {step.solutionNl}</div>}
+              {feedback && (
+                <div
+                  className={`feedback ${
+                    feedback.isCorrect ? 'correct' : feedback.invalidFormat ? 'invalid' : 'incorrect'
+                  }`}
+                  role="status"
+                >
+                  {feedback.isCorrect ? '✅ ' : feedback.invalidFormat ? '✍️ ' : '💡 '}
+                  {feedback.feedbackNl}
                 </div>
               )}
+
+              <div className="help-row">
+                <button type="button" className="btn ghost" onClick={requestHint}>
+                  💡 Hint
+                </button>
+                {hint && (
+                  <div className="hint-box" aria-live="polite">
+                    {hint}
+                    {session.hintLevel >= 4 && (
+                      <div className="hint-solution">Oplossing: {step.solutionNl}</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {allSolved && (
-          <div className="explanation">
-            <h3>Uitleg</h3>
-            <ul>
-              {exercise.explanationNl.map((line, i) => (
-                <li key={i}>{line}</li>
-              ))}
-            </ul>
-            <button type="button" className="btn primary big" onClick={finish}>
-              {store.sessionItemsDone + 1 >= SESSION_TARGET_ITEMS ? 'Klaar! ✨' : 'Volgende opgave →'}
-            </button>
-          </div>
-        )}
+          {allSolved && (
+            <div className="explanation">
+              <h3>Uitleg</h3>
+              <ul>
+                {exercise.explanationNl.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+              <button type="button" className="btn primary big" onClick={finish}>
+                {store.sessionItemsDone + 1 >= SESSION_TARGET_ITEMS ? 'Klaar! ✨' : 'Volgende opgave →'}
+              </button>
+            </div>
+          )}
 
-        {!allSolved && (
-          <footer className="exercise-footer">
-            <button type="button" className="btn ghost" onClick={skip}>
-              Deze overslaan
-            </button>
-            <span className="answer-kind">Antwoord: {describeAnswerType(step)}</span>
-          </footer>
-        )}
+          {!allSolved && (
+            <footer className="exercise-footer">
+              <button type="button" className="btn ghost" onClick={skip}>
+                Deze overslaan
+              </button>
+              <span className="answer-kind">Antwoord: {describeAnswerType(step)}</span>
+            </footer>
+          )}
+        </div>
       </section>
     </div>
   )
