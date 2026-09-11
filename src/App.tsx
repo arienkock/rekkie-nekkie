@@ -5,6 +5,7 @@
  */
 import { useRef, useState } from 'react'
 import { useLearnerStore } from './hooks/use-learner-store'
+import { useViewportFit } from './hooks/use-viewport-fit'
 import { ExerciseView } from './components/ExerciseView'
 import { ProgressView } from './components/ProgressView'
 import type { LearnerStore } from './store/learner-store'
@@ -14,6 +15,8 @@ type View = 'home' | 'exercise' | 'progress' | 'settings'
 export default function App() {
   const store = useLearnerStore()
   const [view, setView] = useState<View>('home')
+  // Keep the visible layout in sync with browser chrome and the OSK.
+  useViewportFit()
 
   const start = () => {
     store.startSession()

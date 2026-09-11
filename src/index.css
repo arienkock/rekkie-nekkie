@@ -42,15 +42,52 @@
   box-sizing: border-box;
 }
 
+/*
+ * Tablet-first "one screen, no page scroll" shell.
+ *
+ * - 100dvh (dynamic viewport height) tracks the *visible* viewport: when
+ *   browser chrome (URL bar) or the on-screen keyboard appears/disappears
+ *   (with interactive-widget=resizes-content), the app resizes with it
+ *   instead of panning/scrolling the page.
+ * - body never scrolls; `main` is the only bounded region, so the header
+ *   nav and footer stay visible and interactive at all times.
+ * - safe-area insets keep content clear of notches/rounded corners.
+ */
+html {
+  height: 100%;
+  /* Disables double-tap-to-zoom but keeps pan + pinch available. */
+  touch-action: manipulation;
+}
+
 body {
   margin: 0;
+  height: 100%;
+  overflow: hidden;
+  /* Kill rubber-band bounce so focus management never fights the page. */
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 #root {
+  height: 100vh; /* fallback for browsers without dvh */
+  height: 100dvh;
   max-width: 880px;
   margin: 0 auto;
-  padding: 16px 20px 48px;
-  min-height: 100svh;
+  padding:
+    max(10px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  /*
+   * --keyboard is set by useViewportFit() from the VisualViewport API: the
+   * height of an overlay on-screen keyboard (e.g. iPad Safari), which does
+   * NOT resize the layout. Reserving it shrinks the app to what is actually
+   * visible so the active input can always be scrolled into reach.
+   */
+  padding-bottom: max(10px, env(safe-area-inset-bottom), var(--keyboard, 0px));
+  display: flex;
+  flex-direction: column;
 }
 
 h1,
@@ -64,10 +101,13 @@ h3 {
 .app {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: clamp(10px, 1.6vh, 20px);
+  flex: 1;
+  min-height: 0;
 }
 
 .app-header {
+  flex: none;
   text-align: center;
 }
 
@@ -804,8 +844,29 @@ h3 {
 }
 
 .app-footer {
+  flex: none;
   text-align: center;
   font-size: 13px;
+}
+
+.app-footer p {
+  margin: 0;
+}
+
+/*
+ * The main region is the only bounded area: it fills whatever height the
+ * visible viewport leaves, centers content vertically when it fits, and
+ * scrolls internally (never the page) only when content is genuinely too
+ * tall — e.g. a very long explanation or a tiny browser window.
+ */
+main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* "safe" = center when it fits, fall back to start (scrollable) when not. */
+  justify-content: safe center;
 }
 
 /* Save failure & summary states */
@@ -850,4 +911,227 @@ h3 {
 .qr-inputs input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/*
+ * Widgets must never blow the vertical budget. SVGs keep their viewBox
+ * aspect ratio, so capping the height shrinks the width with it.
+ */
+.widget-svg {
+  max-height: 26vh;
+}
+
+/*
+ * iOS Safari auto-zooms into any input rendered below 16px when the
+ * on-screen keyboard opens — even in compact mode, text inputs must stay
+ * at or above 16px so the layout stays stable while typing.
+ */
+.answer-input,
+.digit-input input,
+.qr-inputs input,
+.import-textarea {
+  font-size: max(16px, 1em);
+}
+
+/*
+ * ---- Compact viewport tiers ----
+ * Everything below is tuned so the exercise flow fits the visible screen
+ * without any scrolling, even on short (landscape) tablets. Font sizes and
+ * paddings step down; buttons keep touch-friendly hit areas.
+ */
+
+/* Slightly short screens (e.g. ~1024px-tall tablets in portrait). */
+@media (max-height: 940px) {
+  .app-header h1 {
+    font-size: 28px;
+  }
+
+  .hero,
+  .exercise-card {
+    padding: 18px 18px;
+  }
+
+  .exercise-card {
+    gap: 10px;
+  }
+
+  .session-summary {
+    padding: 22px;
+  }
+
+  .step {
+    padding: 6px 12px;
+  }
+}
+
+/* Short screens (e.g. 768px landscape tablets). */
+@media (max-height: 800px) {
+  :root {
+    font-size: 15px;
+  }
+
+  .app {
+    gap: 8px;
+  }
+
+  .app-header h1 {
+    font-size: 24px;
+    margin-bottom: 4px;
+  }
+
+  .tagline {
+    display: none;
+  }
+
+  .hero {
+    padding: 14px 16px;
+    gap: 8px;
+  }
+
+  .greeting {
+    font-size: 19px;
+  }
+
+  .stats-row {
+    margin-top: 8px;
+    gap: 8px;
+  }
+
+  .stat-card {
+    padding: 10px;
+  }
+
+  .exercise-card {
+    padding: 14px 16px;
+    gap: 8px;
+  }
+
+  .exercise-instruction {
+    line-height: 1.35;
+  }
+
+  .step {
+    padding: 5px 10px;
+  }
+
+  .feedback {
+    padding: 6px 12px;
+  }
+
+  .explanation {
+    padding: 10px 14px;
+    gap: 6px;
+  }
+
+  .btn.big {
+    font-size: 17px;
+    padding: 10px 24px;
+  }
+
+  .dhte-grid td {
+    font-size: 20px;
+    padding: 6px 8px;
+  }
+
+  .column-grid pre {
+    font-size: 20px;
+  }
+
+  .mt-amount {
+    font-size: 22px;
+  }
+
+  .dg-dot {
+    width: 13px;
+    height: 13px;
+  }
+
+  .session-summary {
+    padding: 18px;
+  }
+
+  .island-header {
+    padding: 10px 14px;
+  }
+
+  .constellation {
+    padding: 4px 14px 10px;
+    gap: 6px;
+  }
+
+  .kc-row {
+    padding-top: 6px;
+  }
+
+  .settings-card {
+    padding: 12px;
+  }
+}
+
+/* Very short viewports (e.g. 720px or less, or keyboard open on Android). */
+@media (max-height: 700px) {
+  :root {
+    font-size: 14px;
+  }
+
+  .app-header h1 {
+    font-size: 21px;
+  }
+
+  .app-nav {
+    gap: 6px;
+  }
+
+  .nav-link {
+    padding: 4px 14px;
+  }
+
+  .hero,
+  .exercise-card,
+  .session-summary {
+    padding: 12px;
+  }
+
+  .stat-card {
+    padding: 6px;
+  }
+
+  .stat-value {
+    font-size: 20px;
+  }
+
+  .step {
+    padding: 4px 10px;
+  }
+
+  .hint-box {
+    padding: 6px 10px;
+  }
+
+  .dhte-grid td {
+    font-size: 17px;
+    padding: 4px 6px;
+  }
+
+  .column-grid pre {
+    font-size: 17px;
+  }
+
+  .digit-input input {
+    width: 44px;
+  }
+
+  .answer-input {
+    min-width: 150px;
+    padding: 6px 10px;
+  }
+
+  .btn {
+    padding: 6px 14px;
+  }
+
+  .btn.big {
+    font-size: 15px;
+    padding: 8px 20px;
+  }
 }
