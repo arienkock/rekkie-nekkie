@@ -150,7 +150,10 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
                         if (navigable) setStepIndex(i)
                       }}
                     >
-                      {i + 1}. {s.promptNl}
+                      <span className="step-num" aria-hidden>
+                        {solved[i] ? '✓' : i + 1}
+                      </span>
+                      <span className="step-prompt">{s.promptNl}</span>
                     </button>
                   </li>
                 )

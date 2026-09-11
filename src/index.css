@@ -332,7 +332,9 @@ h3 {
 }
 
 .step {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   width: 100%;
   text-align: left;
   font: inherit;
@@ -342,6 +344,40 @@ h3 {
   border: 1.5px dashed transparent;
   background: none;
   cursor: pointer;
+}
+
+/*
+ * The step number is a badge, never plain text: a numbered exercise prompt
+ * like "Je start op 658..." must not visually fuse with "1." (it read as
+ * part of the numbers). Solved steps show a check instead.
+ */
+.step-num {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45em;
+  height: 1.45em;
+  margin-top: 0.1em;
+  border-radius: 50%;
+  background: var(--border);
+  font-size: 0.82em;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.step-prompt {
+  flex: 1;
+}
+
+.step.active .step-num {
+  background: var(--accent);
+  color: #fff;
+}
+
+.step.solved .step-num {
+  background: var(--ok);
+  color: #fff;
 }
 
 .step:not(:disabled):hover {
