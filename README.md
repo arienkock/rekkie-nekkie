@@ -1,3 +1,19 @@
+## 🚀 Deployment (GitHub Pages)
+
+The rendered static site is published automatically on every push to `master` by
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml): it runs `npm ci` → tests
+→ `npm run build`, uploads `dist/` as a Pages artifact, and deploys it with the
+official GitHub Pages actions.
+
+- **Live URL**: <https://arienkock.github.io/rekkie-nekkie/>
+- **One-time setup** (if the first deploy fails): repo *Settings → Pages* → set
+  *Build source* to **GitHub Actions**. Normally the first workflow run enables
+  this automatically.
+- `vite.config.ts` sets `base: '/rekkie-nekkie/'` so built asset URLs match the
+  GitHub Pages subpath — keep this in sync with the repo name.
+
+---
+
 # Rekkie Nekkie - Dutch Primary School Math Webapp
 
 Rekkie Nekkie is an interactive, client-side math learning and practice application for the Dutch Grade 5/6 mathematics curriculum (groep 5/6).
