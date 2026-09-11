@@ -204,4 +204,52 @@ describe('generators', () => {
       }
     }
   })
+
+  it('typing the final answer on a scaffolded jump step is coached, never wrong-math evidence', () => {
+    for (const skill of ['ADD.JUMP.NoBridge', 'ADD.JUMP.TenBridge', 'ADD.JUMP.HundredBridge'] as const) {
+      for (const tier of ['S0', 'S1'] as const) {
+        const ex = generateExercise(ctx({ primarySkillId: skill, tier, seed: `fin:${skill}:${tier}` }))
+        expect(ex.steps.length).toBe(3)
+        const [a, b] = ex.fingerprint.replace('nlj:', '').split('+').map(Number)
+        const total = a! + b!
+        for (const step of ex.steps.slice(0, 2)) {
+          // The final total on an intermediate step: math is right, so this
+          // must never count as wrong-math evidence (invalidFormat, §4.1)...
+          const early = step.validate(String(total))
+          expect(early.isCorrect).toBe(false)
+          expect(early.invalidFormat).toBe(true)
+          expect(early.misconceptionId).toBeNull()
+          // ...and the actual tussenstand is still accepted.
+          const tussenstand = step.solutionNl.match(/= (\d+)/)![1]!
+          expect(step.validate(tussenstand).isCorrect).toBe(true)
+        }
+        // The last step still accepts the total.
+        expect(ex.steps[2]!.validate(String(total)).isCorrect).toBe(true)
+      }
+    }
+  })
+
+  it('typing the full sum on the carry step is coached, never wrong-math evidence', () => {
+    let checked = 0
+    for (let i = 0; i < 30 && checked < 5; i++) {
+      const ex = generateExercise(
+        ctx({ primarySkillId: 'ADD.COLUMN.Carry', tier: 'S0', seed: `carry-full:${i}` }),
+      )
+      const carryStep = ex.steps.find((s) => s.id === 'carry-e')
+      if (!carryStep) continue // seed without a units carry
+      checked++
+      const [a, b] = ex.fingerprint.replace('coladd:', '').split('+').map(Number)
+      const total = a! + b!
+      const early = carryStep.validate(String(total))
+      expect(early.isCorrect).toBe(false)
+      expect(early.invalidFormat).toBe(true)
+      expect(early.misconceptionId).toBeNull()
+      // The carry itself is still accepted.
+      expect(carryStep.validate('1').isCorrect).toBe(true)
+      // And the sum step still accepts the total.
+      const sumStep = ex.steps.find((s) => s.id === 'sum')!
+      expect(sumStep.validate(String(total)).isCorrect).toBe(true)
+    }
+    expect(checked).toBeGreaterThanOrEqual(5)
+  })
 })

@@ -79,14 +79,22 @@ export function generateNumberLineJumps(ctx: GeneratorContext): GeneratedExercis
       const v = parseIntAnswer(answer as string | number)
       if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf een heel getal.', misconceptionId: null, invalidFormat: true }
       if (v === target) return { isCorrect: true, feedbackNl: 'Goed!', misconceptionId: null }
-      // Endpoint-not-jump signature: learner writes the final result as an endpoint.
-      const endpointNotJump = v === total && target !== total
+      // The learner jumped ahead to the final result: the math is right, it
+      // is just not the answer to *this* step. Coach neutrally and record no
+      // wrong-math evidence — same principle as unparseable input (docs §4.1).
+      if (v === total && target !== total) {
+        return {
+          isCorrect: false,
+          invalidFormat: true,
+          feedbackNl:
+            'Je hebt het eindantwoord al — goed nagedacht! Maar deze stap vraagt de tussenstand na deze sprong.',
+          misconceptionId: null,
+        }
+      }
       return {
         isCorrect: false,
-        feedbackNl: endpointNotJump
-          ? `Dit is waar je uiteindelijk uitkomt. Wat is de tussenstand na deze sprong?`
-          : `Je eerste sprong klopt nog. Waar kom je uit na deze sprong?`,
-        misconceptionId: endpointNotJump ? 'MC.LINE.EndpointNotJump' : null,
+        feedbackNl: `Je eerste sprong klopt nog. Waar kom je uit na deze sprong?`,
+        misconceptionId: null,
       }
     },
   })

@@ -60,6 +60,18 @@ export function generateColumnarAddition(ctx: GeneratorContext): GeneratedExerci
         const v = parseIntAnswer(answer as string | number)
         if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf 0 of 1.', misconceptionId: null, invalidFormat: true }
         if (v === carryFromUnits) return { isCorrect: true, feedbackNl: 'Klopt!', misconceptionId: null }
+        // The learner skipped ahead to the full sum: the math is right, it
+        // is just not the answer to *this* step. Coach neutrally and record
+        // no wrong-math evidence (docs §4.1).
+        if (v === total) {
+          return {
+            isCorrect: false,
+            invalidFormat: true,
+            feedbackNl:
+              'Je hebt de hele som al — goed nagedacht! Maar deze stap vraagt alleen wat je onthoudt bij de eenheden.',
+            misconceptionId: null,
+          }
+        }
         return {
           isCorrect: false,
           feedbackNl: `Reken ${a % 10} + ${b % 10} uit. Past dat in de eenheden-kolom, of moet je ruilen?`,
