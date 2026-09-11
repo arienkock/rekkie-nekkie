@@ -171,8 +171,10 @@ function HomeStats({ store }: { store: LearnerStore }) {
   const total = store.snapshot.totalExercisesCompleted
   const atLevel = Object.values(store.snapshot.skills).filter((s) => s.currentVerifiedLevel >= 1).length
   const skillCount = Object.keys(store.snapshot.skills).length
+  // 'refresh' freshness means "memory refreshed within the last day"
+  // (recently practiced) — only 'due' skills are actually ready for review.
   const dueNow = Object.values(store.snapshot.skills).filter(
-    (s) => s.memory.freshness === 'due' || s.memory.freshness === 'refresh',
+    (s) => s.memory.freshness === 'due',
   ).length
 
   const stats = [

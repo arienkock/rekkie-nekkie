@@ -517,6 +517,11 @@ export class LearnerStore {
     this.sessionItemsDone += 1
     this.currentSession = null
 
+    // Freshness is derived state (docs §5.3.2): recompute after committing
+    // evidence so the dashboard reflects this visit's practice immediately
+    // instead of showing stale page-load labels.
+    this.recomputeFreshness(now)
+
     // Checkpoint commit: journal the evidence, save, then compact.
     if (applied) this.profileStore.appendJournal(applied.observation)
     this.persist()

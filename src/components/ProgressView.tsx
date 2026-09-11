@@ -8,14 +8,8 @@ import { useMemo, useState } from 'react'
 import type { LearnerStore } from '../store/learner-store'
 import { SUPPORTED_SKILLS } from '../generators'
 import { KNOWLEDGE_GRAPH, THEME_META } from '../domain/knowledge-graph'
+import { childStatusText } from '../domain/child-status'
 import type { SkillId, ThemeId } from '../domain/types'
-
-const FRESHNESS_LABELS: Record<string, string> = {
-  new: 'nog niet geoefend',
-  fresh: 'vers in je hoofd',
-  due: 'even opfrissen?',
-  refresh: 'even opfrissen?',
-}
 
 export function ProgressView({ store }: { store: LearnerStore }) {
   const byTheme = useMemo(() => {
@@ -99,8 +93,10 @@ function SkillRow({
   const state = store.skillState(skillId)
   const level = state.currentVerifiedLevel
   const highest = state.highestDemonstratedLevel
-  const fresh = FRESHNESS_LABELS[state.memory.freshness] ?? ''
-  const isDue = state.memory.freshness === 'due' || state.memory.freshness === 'refresh'
+  // Truthful per-row status: 'nog niet geoefend' only when never practiced,
+  // and recently-practiced ('refresh') is never shown as due.
+  const status = childStatusText(state)
+  const isDue = state.memory.freshness === 'due'
 
   return (
     <li className={`kc-row ${isDue ? 'due' : ''}`}>
@@ -113,7 +109,7 @@ function SkillRow({
             </span>
           ))}
         </span>
-        {state.exposureCount > 0 && <span className="kc-fresh">{fresh}</span>}
+        {status && <span className="kc-fresh">{status}</span>}
       </div>
       <div className="kc-can">{can}</div>
     </li>
