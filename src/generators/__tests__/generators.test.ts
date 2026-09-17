@@ -104,6 +104,50 @@ describe('generators', () => {
     void ex
   })
 
+  it('clock coaching text matches the phrase, not the half-hour rule', () => {
+    // Regression: "5 over 2" used to be taught with "half 9 is 08:30" — text
+    // about a rule the item does not exercise.
+    const halfWord = /\bhal(f|ve)\b/i
+    for (const skill of [
+      'TIME.READ.MinuteFive',
+      'TIME.READ.DutchHourQuarter',
+      'TIME.READ.DutchHourOffset',
+      'TIME.READ.DutchHalfNextHour',
+      'TIME.READ.DutchPhrasingHalfHourOffset',
+    ]) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `coach:${skill}:${i}`, tier }))
+          const step = ex.steps[0]!
+          const phrase = step.promptNl.match(/"([^"]+)"/)![1]!
+          const isHalfPhrase = halfWord.test(phrase)
+          // Wrong-but-unrecognised answer exercises the fallback feedback.
+          const wrong = step.validate('7:07')
+          expect(wrong.isCorrect).toBe(false)
+          const copy = [
+            ex.instructionNl,
+            ...ex.hintsNl!,
+            ...ex.explanationNl.slice(2),
+            wrong.feedbackNl,
+          ]
+          for (const line of copy) {
+            if (!isHalfPhrase) expect(line, `${phrase} / ${skill}`).not.toMatch(halfWord)
+          }
+        }
+      }
+    }
+  })
+
+  it('clock hints illustrate the rule without giving away the answer', () => {
+    for (let i = 0; i < 40; i++) {
+      const ex = generateExercise(
+        ctx({ primarySkillId: 'TIME.READ.MinuteFive', seed: `leak${i}`, tier: 'S1' }),
+      )
+      const solution = ex.steps[0]!.solutionNl
+      for (const hint of ex.hintsNl!) expect(hint).not.toContain(solution)
+    }
+  })
+
   it('validates its own answers (correct and misconception signatures)', () => {
     // DHTE zero collapse: 5307 typed with tens 3 instead of 0.
     const dhte = generateExercise(

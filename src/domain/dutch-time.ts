@@ -58,6 +58,41 @@ export function toDutchVerbalTime(t: ClockTime): string {
   }
 }
 
+/**
+ * The structural family a Dutch clock phrase belongs to. Coaching text (rules,
+ * hints, feedback) differs per family: "5 over 2" needs the over-the-hour rule,
+ * not the half-hour rule, so callers key their copy on this instead of assuming
+ * every clock item is a half-hour item.
+ */
+export type DutchPhraseShape =
+  | 'whole'
+  | 'over-hour'
+  | 'quarter-over'
+  | 'to-half'
+  | 'half'
+  | 'past-half'
+  | 'quarter-to'
+  | 'to-hour'
+
+export function dutchPhraseShape(minutes: number): DutchPhraseShape {
+  switch (minutes) {
+    case 0: return 'whole'
+    case 5:
+    case 10: return 'over-hour'
+    case 15: return 'quarter-over'
+    case 20:
+    case 25: return 'to-half'
+    case 30: return 'half'
+    case 35:
+    case 40: return 'past-half'
+    case 45: return 'quarter-to'
+    case 50:
+    case 55: return 'to-hour'
+    default:
+      throw new Error(`Dutch verbal time only supports 5-minute resolution; got ${minutes}`)
+  }
+}
+
 /** Digital 24-hour display, e.g. "08:20". */
 export function formatDigital(t: ClockTime): string {
   const hh = String(t.hours).padStart(2, '0')
