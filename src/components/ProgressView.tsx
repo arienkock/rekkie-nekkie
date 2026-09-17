@@ -56,6 +56,11 @@ export function ProgressView({ store }: { store: LearnerStore }) {
                 <span className="island-count">
                   {earned}/{primary.length}
                 </span>
+                {/* Open/closed was only in aria-expanded: nothing on screen
+                    said whether tapping would open or close the island. */}
+                <span className="island-chevron" aria-hidden>
+                  {expanded === theme ? '▾' : '▸'}
+                </span>
               </button>
               {expanded === theme && (
                 <ul className="constellation">

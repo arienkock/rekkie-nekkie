@@ -29,6 +29,12 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * Reduced motion has two sources: the OS hint and the app's own "Minder
+ * beweging" setting (mirrored onto <html data-reduced-motion> by App.tsx).
+ * Every animation below is written so its *resting* state is the final one,
+ * so switching motion off never hides content — it only removes the motion.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -36,6 +42,13 @@
     animation: none !important;
     transition: none !important;
   }
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation: none !important;
+  transition: none !important;
 }
 
 * {
@@ -157,6 +170,18 @@ h3 {
   color: var(--accent);
 }
 
+/* The open view was indistinguishable from the other two tabs. */
+.nav-link[aria-current='page'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 650;
+}
+
+.nav-link[aria-current='page']:hover {
+  color: #fff;
+}
+
 .muted {
   color: var(--text-soft);
 }
@@ -174,6 +199,38 @@ h3 {
 
 .btn:hover {
   box-shadow: var(--shadow);
+}
+
+/*
+ * Touch devices have no hover: without a pressed state a tap gives no
+ * acknowledgement at all until its result lands. Keep it fast (<=120ms) so
+ * the app feels answerable rather than animated.
+ */
+.btn,
+.nav-link,
+.island-header,
+.step {
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    transform 90ms ease,
+    box-shadow 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:active:not(:disabled),
+.nav-link:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: none;
+}
+
+.step:not(:disabled):active {
+  transform: scale(0.99);
+}
+
+.island-header:active {
+  background: var(--surface-alt);
 }
 
 .btn.primary {
@@ -212,6 +269,32 @@ h3 {
 .answer-input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/*
+ * The field carries the result of the last check, right where the learner is
+ * looking, until the answer is edited again. Shape/weight carries it too, so
+ * it does not depend on colour alone.
+ */
+.answer-input.checked-correct,
+.digit-input input.checked-correct,
+.qr-inputs input.checked-correct {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.answer-input.checked-incorrect,
+.digit-input input.checked-incorrect,
+.qr-inputs input.checked-incorrect {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.answer-input.checked-invalid,
+.digit-input input.checked-invalid,
+.qr-inputs input.checked-invalid {
+  border-color: var(--border-strong);
+  background: var(--surface-alt);
 }
 
 /* ---- Home ---- */
@@ -277,7 +360,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   color: var(--text-soft);
   font-size: 14px;
 }
@@ -306,6 +389,12 @@ h3 {
   border-color: var(--accent);
 }
 
+/* Without this, "done" and "still to come" looked the same at the cursor. */
+.progress-dots .dot.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .tier-badge {
   background: var(--accent-soft);
   color: var(--accent);
@@ -314,12 +403,42 @@ h3 {
   font-weight: 600;
 }
 
+/*
+ * "Waarom deze opgave?" used to be a truncated line whose full text lived in
+ * a title tooltip — invisible on a tablet, which is the primary device. It is
+ * a button now: tapping it prints the whole explanation on its own row.
+ */
 .selection-note {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+  /* On the text, not the box: the button stretches to fill the header row. */
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.selection-note:hover,
+.selection-note[aria-expanded='true'] {
+  color: var(--accent);
+}
+
+.selection-note-full {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  animation: slide-in 180ms ease-out;
 }
 
 .stop-button {
@@ -499,9 +618,33 @@ h3 {
   text-align: center;
 }
 
+/*
+ * The banner lives inside a standing live region (.feedback-slot) and is
+ * re-mounted on every check, so the entrance below replays even when the
+ * message is word-for-word the one already on screen — which is exactly the
+ * case where nothing used to happen.
+ */
+.feedback-slot:empty {
+  display: none;
+}
+
 .feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   border-radius: 12px;
   padding: 10px 14px;
+  animation: feedback-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.feedback-icon {
+  flex: none;
+  font-size: 1.1em;
+  line-height: 1.35;
+}
+
+.feedback-text {
+  min-width: 0;
 }
 
 .feedback.correct {
@@ -514,6 +657,7 @@ h3 {
   background: var(--warn-soft);
   color: var(--warn);
   border: 1px solid var(--warn);
+  animation: feedback-in-nudge 380ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Format feedback is neutral: not a mistake, just not readable input yet. */
@@ -523,6 +667,36 @@ h3 {
   border: 1px solid var(--border-strong);
 }
 
+/*
+ * The learner has started typing again: the message describes an answer that
+ * is no longer on screen, so it steps back rather than posing as a live one.
+ */
+.feedback.stale {
+  opacity: 0.55;
+  animation: none;
+}
+
+/* Repeat attempts read identically; the count is the part that changes. */
+.feedback-attempt {
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+/* A correct step silently swaps the form underneath; say where you landed. */
+.feedback-next {
+  display: block;
+  margin-top: 2px;
+  font-weight: 650;
+}
+
+/* The last correct answer used to vanish with the form it was typed into. */
+.solved-banner {
+  margin: 0;
+  font-weight: 650;
+  color: var(--ok);
+  animation: feedback-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .help-row {
   display: flex;
   gap: 10px;
@@ -530,12 +704,27 @@ h3 {
   flex-wrap: wrap;
 }
 
+.hint-slot {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
 .hint-box {
   background: var(--accent-soft);
   border-radius: 12px;
   padding: 8px 12px;
   color: var(--accent);
-  flex: 1 1 280px;
+  animation: slide-in 200ms ease-out;
+}
+
+/* Which rung of the ladder this is — pressing Hint again now shows progress. */
+.hint-level {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
 }
 
 .hint-solution {
@@ -816,6 +1005,27 @@ h3 {
   color: var(--text-soft);
 }
 
+.island-chevron {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.island.expanded {
+  border-color: var(--accent);
+}
+
+.island.expanded .island-header {
+  background: var(--accent-soft);
+}
+
+.island.expanded .island-chevron {
+  color: var(--accent);
+}
+
+.constellation {
+  animation: slide-in 180ms ease-out;
+}
+
 .constellation {
   list-style: none;
   margin: 0;
@@ -919,8 +1129,34 @@ h3 {
   padding: 8px;
 }
 
-.import-status {
+/*
+ * Confirmations for actions whose only other trace is off-screen (a saved
+ * preference, a downloaded file, an imported profile). `:empty` keeps the
+ * live region out of the layout until there is something to say.
+ */
+.note-slot:empty {
+  display: none;
+}
+
+.note {
+  margin: 10px 0 0;
   font-weight: 650;
+  animation: feedback-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.note-ok {
+  color: var(--ok);
+}
+
+.note-warn {
+  color: var(--warn);
+}
+
+/* Says the field differs from what is stored, before Opslaan is pressed. */
+.pending-hint {
+  color: var(--warn);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .checkbox-row {
@@ -964,6 +1200,7 @@ main {
   border-radius: 12px;
   text-align: center;
   font-weight: 600;
+  animation: slide-in 220ms ease-out;
 }
 
 .save-warn {
@@ -1264,4 +1501,79 @@ main {
   .settings > h2 {
     grid-column: 1 / -1;
   }
+}
+
+/*
+ * ---- Motion: making a change perceptible ----
+ *
+ * Every keyframe below animates *from* an offset state *to* the element's
+ * normal rendering, so with motion switched off (OS hint or the in-app
+ * "Minder beweging" setting) the element simply appears in its final state.
+ * Durations stay short — these acknowledge an action, they do not explain
+ * mathematics (docs §4.3 reserves 300–700 ms for that).
+ */
+
+@keyframes feedback-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/*
+ * A wrong answer: the same entrance plus a small sideways nudge — enough to
+ * register as "that was checked and it is not right yet", far from the
+ * shaming red cross the design brief rules out. One keyframe, one transform
+ * function, so the two halves cannot fight over the overlap.
+ */
+@keyframes feedback-in-nudge {
+  0% {
+    opacity: 0;
+    transform: translate(0, -6px);
+  }
+  45% {
+    opacity: 1;
+    transform: translate(-4px, 0);
+  }
+  72% {
+    transform: translate(4px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+
+/*
+ * Switching view, starting a session, skipping, and moving to the next
+ * exercise all replace the whole region at once. Each of these roots mounts
+ * fresh when that happens, so the entrance marks the change without any
+ * transition bookkeeping. (.exercise-view is keyed on the session id in
+ * App.tsx, so every new item animates in, including after a skip.)
+ */
+.home,
+.exercise-view,
+.session-summary,
+.progress-view,
+.settings {
+  animation: view-in 200ms ease-out;
+}
+
+/* A solved step: the check badge lands rather than blinking into place. */
+.step.solved .step-num {
+  animation: feedback-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
