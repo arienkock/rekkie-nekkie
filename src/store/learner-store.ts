@@ -366,7 +366,7 @@ export class LearnerStore {
     if (session.hintLevel >= 4) {
       session.evidenceWeight = EVIDENCE_WEIGHTS.revealed
       this.notify()
-      return 'Hier is de oplossing:'
+      return 'Hier zie je het antwoord.'
     }
     if (session.hintLevel >= 1) {
       session.evidenceWeight = Math.min(session.evidenceWeight, EVIDENCE_WEIGHTS.scaffoldedPrediction)

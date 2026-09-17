@@ -8,7 +8,7 @@ import type { GeneratedExercise } from '../domain/types'
 import type { DutchPhraseShape } from '../domain/dutch-time'
 import {
   dutchPhraseShape,
-  formatDigital,
+  formatDigital12,
   fromMinuteOfDay,
   halfHourReferenceError,
   isTwelveWrap,
@@ -84,24 +84,24 @@ function coachingFor(
   switch (shape) {
     case 'whole':
       return {
-        supportedInstructionNl: 'Onthoud: bij "… uur" staat de grote wijzer op de 12; de minuten zijn 00.',
+        supportedInstructionNl: 'Onthoud: bij een heel uur staat de grote wijzer op de 12; de minuten zijn 00.',
         hintsNl: [
-          'Welk uur noemt de zin? Dat is het hele uur.',
-          'Bij een heel uur zijn er geen losse minuten: je schrijft :00.',
+          'Welk uur staat er in de zin? Dat is het hele uur.',
+          'Bij een heel uur zijn er geen losse minuten: je schrijft 00 bij de minuten.',
           worked,
         ],
         ruleNl: 'Bij een heel uur staat de grote wijzer op de 12 en zijn de minuten 00.',
-        fallbackFeedbackNl: 'Bij "… uur" zijn de minuten 00. Neem het uur uit de zin over.',
+        fallbackFeedbackNl: 'Bij een heel uur zijn de minuten 00. Neem het uur uit de zin over.',
       }
     case 'over-hour':
       return {
         supportedInstructionNl: 'Onthoud: bij "over" is het hele uur al geweest; je telt de minuten erbij op.',
         hintsNl: [
-          'Welk uur noemt de zin? Dat hele uur is al geweest.',
+          'Welk uur staat er in de zin? Dat hele uur is al geweest.',
           'Bij "over" tel je de minuten op bij dat hele uur.',
           worked,
         ],
-        ruleNl: 'Bij "over" tel je de minuten op bij het hele uur dat al geweest is.',
+        ruleNl: 'Bij "over" tel je de minuten op ná het hele uur dat al geweest is.',
         fallbackFeedbackNl: 'Kijk naar het uur in de zin en tel de minuten van "over" daarbij op.',
       }
     case 'quarter-over':
@@ -130,13 +130,13 @@ function coachingFor(
       return {
         // "Half 9" is exactly this item's answer, so the copy states the rule
         // and leaves the digital time to the worked example on another hour.
-        supportedInstructionNl: `Onthoud: half betekent dat het uur ERAAN KOMT. Het is nog geen ${half!.numeral} uur.`,
+        supportedInstructionNl: `Onthoud: "half" hoort bij het uur dat eraan komt. Het is nog geen ${half!.numeral} uur.`,
         hintsNl: [
           'Kijk goed naar het uur in de zin: dat uur komt er nog aan.',
           `"Half ${half!.numeral}" betekent: nog een half uur, dán is het ${half!.numeral} uur.`,
           worked,
         ],
-        ruleNl: '"Half" hoort bij het uur dat eraan komt: een half uur eerder.',
+        ruleNl: '"Half" hoort bij het uur dat eraan komt: een half uur vóór dat hele uur.',
         fallbackFeedbackNl: 'Bij "half" komt het genoemde uur er nog aan. Ga een half uur terug.',
       }
     case 'past-half':
@@ -169,7 +169,7 @@ function coachingFor(
           'Bij "voor" ga je terug in de tijd: tel de minuten af van dat hele uur.',
           worked,
         ],
-        ruleNl: 'Bij "voor" tel je de minuten af van het uur dat eraan komt.',
+        ruleNl: 'Bij "voor" tel je de minuten af vóór het uur dat eraan komt.',
         fallbackFeedbackNl: 'Bij "voor" is het genoemde uur nog niet geweest. Tel de minuten terug.',
       }
   }
@@ -185,18 +185,19 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
   const hour12 = rng.int(1, 12)
   // minuteOfDay in the morning half-day; the 12-wrap is critical variation.
   let minuteOfDay = (hour12 % 12) * 60 + minutes
+  // NOTE: minutes 20 also names the NEXT hour but is not shifted, so hour12 is
+  // "the named hour" at 25..40 and "one before the named hour" at 20. Do not
+  // derive anything phrase-shaped from hour12 — ask the item (see isTwelveWrap
+  // below); changing this line would also renumber every existing seed.
   if (minutes >= 25 && minutes <= 40) minuteOfDay = (hour12 - 1 === 0 ? 12 : hour12 - 1) % 12 * 60 + minutes
   const time = fromMinuteOfDay(minuteOfDay)
   const phrase = toDutchVerbalTime(time)
   const target12 = minuteOfDay % 720
 
-  // Same phrase shape a few hours away: illustrates the rule without handing
-  // over this item's answer. Whole-hour shifts keep the shape; the first
-  // candidate that avoids the 0 o'clock hour is used, because an example
-  // reading `"12 uur" is 00:00` teaches a notation the child is not asked to
-  // write (the prompt asks for 08:20-style input).
-  const exampleShift = [180, 300, 420].find((d) => fromMinuteOfDay((minuteOfDay + d) % 720).hours !== 0)!
-  const exampleTime = fromMinuteOfDay((minuteOfDay + exampleShift) % 720)
+  // Same phrase shape three hours away: illustrates the rule without handing
+  // over this item's answer. A whole-hour shift keeps the shape, and three
+  // hours is never 0 mod 12, so the example always names a different hour.
+  const exampleTime = fromMinuteOfDay((minuteOfDay + 180) % 720)
   // The hour "half"/"voor" refers to, for copy that names the child's phrase.
   const halfNumeral = phrase.match(/half (\d{1,2})/)?.[1] ?? null
   // "10 voor half 3" (02:20) and "5 over half 3" (02:35) are both anchored on
@@ -204,11 +205,11 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
   const halfAnchor =
     halfNumeral === null
       ? null
-      : { numeral: halfNumeral, digital: formatDigital(fromMinuteOfDay(Math.floor(minuteOfDay / 60) * 60 + 30)) }
+      : { numeral: halfNumeral, digital: formatDigital12(fromMinuteOfDay(Math.floor(minuteOfDay / 60) * 60 + 30)) }
   const shape = dutchPhraseShape(minutes)
   const coaching = coachingFor(
     shape,
-    { phrase: toDutchVerbalTime(exampleTime), digital: formatDigital(exampleTime) },
+    { phrase: toDutchVerbalTime(exampleTime), digital: formatDigital12(exampleTime) },
     halfAnchor,
   )
   const supported = ctx.tier === 'S0' || ctx.tier === 'S1'
@@ -223,7 +224,7 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
         id: 'digital',
         promptNl: `Het is "${phrase}". Schrijf de digitale tijd (bijv. 08:20).`,
         answerType: { kind: 'time', use24Hour: false },
-        solutionNl: formatDigital(time),
+        solutionNl: formatDigital12(time),
         skillTarget: { skillId: skill, role: 'primary' },
         revealsAnswer: true,
         validate: (answer) => {
@@ -232,7 +233,7 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
             return { isCorrect: false, feedbackNl: 'Gebruik de vorm uur:minuten, bijvoorbeeld 08:20.', misconceptionId: null, invalidFormat: true }
           }
           if (sameClockTime(v, target12)) {
-            return { isCorrect: true, feedbackNl: `Klopt: ${phrase} = ${formatDigital(time)}.`, misconceptionId: null }
+            return { isCorrect: true, feedbackNl: `Klopt: ${phrase} = ${formatDigital12(time)}.`, misconceptionId: null }
           }
           // Half-reference error: "half 9" read as 09:30. The null check only
           // narrows the numeral for the message; halfHourReferenceError already
@@ -258,8 +259,8 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
                 isCorrect: false,
                 feedbackNl:
                   shape === 'to-half'
-                    ? `"Voor" betekent teruggaan in de tijd. Ga terug naar half ${halfNumeral} en dan nog ${offset} minuten.`
-                    : `"Over" betekent vooruit in de tijd. Ga vanaf half ${halfNumeral} nog ${offset} minuten verder.`,
+                    ? `"Voor" betekent teruggaan in de tijd. Ga naar half ${halfNumeral} en tel dan ${offset} minuten terug.`
+                    : `"Over" betekent vooruit in de tijd. Ga vanaf half ${halfNumeral} en tel dan ${offset} minuten verder.`,
                 misconceptionId: 'MC.TIME.HalfDirection',
               }
             }
@@ -284,7 +285,7 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
     // 00:30 ("half 1") sits at hour12 === 1. Ask the item itself.
     variationTags: [VARIATION_TAG_BY_SHAPE[shape], isTwelveWrap(time) ? '12-wrap' : 'standard'],
     purpose: ctx.purpose,
-    explanationNl: [phrase, formatDigital(time), coaching.ruleNl],
+    explanationNl: [phrase, formatDigital12(time), coaching.ruleNl],
     hintsNl: coaching.hintsNl,
     fingerprint: `clock:${minuteOfDay}`,
   }

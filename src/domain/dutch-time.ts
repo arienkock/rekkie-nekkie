@@ -111,6 +111,17 @@ export function dutchPhraseShape(minutes: number): DutchPhraseShape {
   }
 }
 
+/**
+ * Digital display on the 12-hour numeral, e.g. "half 1" (minuteOfDay 30) is
+ * "12:30", not "00:30". The Dutch phrasing skills sit BEFORE
+ * TIME.READ.Digital24 in the graph and their steps declare `use24Hour: false`,
+ * so an answer shown back in midnight notation would teach a numeral the child
+ * has not met and is not being asked to write.
+ */
+export function formatDigital12(t: ClockTime): string {
+  return `${String(dutch12(t.hours)).padStart(2, '0')}:${String(t.minutes).padStart(2, '0')}`
+}
+
 /** Digital 24-hour display, e.g. "08:20". */
 export function formatDigital(t: ClockTime): string {
   const hh = String(t.hours).padStart(2, '0')

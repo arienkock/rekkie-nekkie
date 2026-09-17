@@ -144,7 +144,7 @@ describe('generators', () => {
     // "Welk uur komt eraan?" is upcoming-hour framing. It fits "half 9",
     // "kwart voor 9" and "10 voor 9", where the named hour has not arrived —
     // and contradicts "5 over 2", where the named hour is already behind us.
-    const upcoming = /komt (er nog aan|eraan)|eraan komt|nog niet geweest/i
+    const upcoming = /komt (er nog aan|eraan)|eraan komt|nog niet geweest|nog geen \d{1,2} uur/i
     const alreadyPassed = /al geweest/i
     for (const skill of [
       'TIME.READ.MinuteFive',
@@ -209,6 +209,35 @@ describe('generators', () => {
     }
   })
 
+  it('clock copy counts in the direction the phrase actually goes', () => {
+    // The framing guard above only forbids the wrong claim about the named
+    // hour, and the half-family copy stopped using that vocabulary entirely
+    // when it was rewritten — so nothing checked the offset direction, which
+    // is the thing "voor" versus "over" exists to teach.
+    const forward = /vooruit|verder|erbij op|\bbij op\b|\bop bij\b/i
+    const backward = /\bterug|eraf|vanaf|\baf van\b/i
+    for (const skill of CLOCK_SKILLS) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `cnt:${skill}:${i}`, tier }))
+          const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+          // A whole hour has no offset, and "half 9" is the anchor itself.
+          if (/^\d{1,2} uur$/.test(phrase) || /^half \d{1,2}$/.test(phrase)) continue
+          const countsBack = /\bvoor\b/.test(phrase)
+          const wanted = countsBack ? backward : forward
+          const forbidden = countsBack ? forward : backward
+          const copy = [ex.instructionNl, ...ex.hintsNl!, ...ex.explanationNl.slice(2), ex.steps[0]!.validate('7:07').feedbackNl]
+          // The worked example names another time, not a direction.
+          const directional = copy.filter((l) => !l.startsWith('Zo werkt het:'))
+          for (const line of directional) {
+            expect(line, `${phrase} / ${line}`).not.toMatch(forbidden)
+          }
+          expect(directional.some((l) => wanted.test(l)), `${phrase} says nothing about direction`).toBe(true)
+        }
+      }
+    }
+  })
+
   it('clock copy names the half hour from the child\'s own sentence', () => {
     // "10 voor half 3" coached with 'Zoek het halve uur in de zin: "half 9"'
     // sends the child hunting for a phrase that is not in front of them.
@@ -239,8 +268,13 @@ describe('generators', () => {
    * rather than a tag rename, so they are pinned here: closing one, or
    * opening a new one, fails this test rather than passing silently.
    *   - cropped-ruler: needs a ruler widget that does not start at 0 mm.
-   *   - inverse-verification: money-change is a single step; its own header
-   *     says it should also verify price + change = paid.
+   *   - inverse-verification: NOT a money-change detail. gateLevel3 in
+   *     engine/mastery.ts requires inverseSuccessCount >= 1, and the only
+   *     writer of that counter is `isInverse`, set from this one tag in
+   *     store/learner-store.ts. No generator emits it, so Level 3 is
+   *     unreachable for EVERY skill and the tag work above cannot pay off
+   *     until some archetype produces a real inverse-verification step
+   *     (money-change's own header says it should: price + change = paid).
    *   - both-directions: the conversion generator emits up-scale/down-scale
    *     per item; nothing emits a combined tag.
    */

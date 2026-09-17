@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dutchNamedHour12,
   dutchPhraseShape,
+  formatDigital12,
+  isTwelveWrap,
   formatDigital,
   fromMinuteOfDay,
   halfHourReferenceError,
@@ -67,6 +70,43 @@ describe('Dutch verbal time engine', () => {
     for (let minuteOfDay = 0; minuteOfDay < 720; minuteOfDay += 5) {
       const { minutes } = fromMinuteOfDay(minuteOfDay)
       expect(dutchPhraseShape(minutes)).toBeTruthy()
+    }
+  })
+
+  it('names the hour the phrase actually says, at every hour of the day', () => {
+    for (let minuteOfDay = 0; minuteOfDay < 1440; minuteOfDay += 5) {
+      const t = fromMinuteOfDay(minuteOfDay)
+      const phrase = toDutchVerbalTime(t)
+      const numerals = phrase.match(/\d{1,2}/g)!
+      expect(dutchNamedHour12(t), phrase).toBe(Number(numerals[numerals.length - 1]))
+    }
+  })
+
+  it('flags the 12 o\'clock wrap wherever the numeral 12 is involved', () => {
+    expect(isTwelveWrap({ hours: 0, minutes: 0 })).toBe(true) // "12 uur"
+    expect(isTwelveWrap({ hours: 0, minutes: 30 })).toBe(true) // "half 1"
+    expect(isTwelveWrap({ hours: 11, minutes: 45 })).toBe(true) // "kwart voor 12"
+    expect(isTwelveWrap({ hours: 23, minutes: 55 })).toBe(true) // "5 voor 12"
+    expect(isTwelveWrap({ hours: 12, minutes: 20 })).toBe(true) // "10 voor half 1"
+    expect(isTwelveWrap({ hours: 11, minutes: 5 })).toBe(false) // "5 over 11"
+    expect(isTwelveWrap({ hours: 1, minutes: 5 })).toBe(false) // "5 over 1"
+    expect(isTwelveWrap({ hours: 1, minutes: 20 })).toBe(false) // "10 voor half 2"
+    // Exhaustive: the wrap is exactly "the phrase says 12, or 12 has just passed".
+    for (let minuteOfDay = 0; minuteOfDay < 1440; minuteOfDay += 5) {
+      const t = fromMinuteOfDay(minuteOfDay)
+      const saysTwelve = dutchNamedHour12(t) === 12 || t.hours % 12 === 0
+      expect(isTwelveWrap(t), toDutchVerbalTime(t)).toBe(saysTwelve)
+    }
+  })
+
+  it('shows clock answers on the 12-hour numeral, never as midnight', () => {
+    // These KCs precede TIME.READ.Digital24, so "half 1" is 12:30, not 00:30.
+    expect(formatDigital12({ hours: 0, minutes: 0 })).toBe('12:00')
+    expect(formatDigital12({ hours: 0, minutes: 30 })).toBe('12:30')
+    expect(formatDigital12({ hours: 8, minutes: 20 })).toBe('08:20')
+    expect(formatDigital12({ hours: 13, minutes: 5 })).toBe('01:05')
+    for (let minuteOfDay = 0; minuteOfDay < 1440; minuteOfDay += 5) {
+      expect(formatDigital12(fromMinuteOfDay(minuteOfDay))).not.toMatch(/^00:/)
     }
   })
 

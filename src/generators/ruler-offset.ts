@@ -73,7 +73,13 @@ export function generateRulerOffset(ctx: GeneratorContext): GeneratedExercise {
     // millimeters"), so the item has to say whether it actually asks for a
     // sub-centimetre reading: lengths are multiples of 5 mm, and only the ones
     // that are not whole centimetres exercise the mm subdivisions.
-    variationTags: [askOffset ? 'offset' : 'zero-start', ...(lengthMm % 10 === 0 ? [] : ['millimeter'])],
+    // A sub-centimetre reading is required when EITHER endpoint is off the cm
+    // grid, so the tag means the same thing on ZeroStart (where startMm is 0
+    // and this reduces to the length) and on Offset at the harder band.
+    variationTags: [
+      askOffset ? 'offset' : 'zero-start',
+      ...(startMm % 10 === 0 && endMm % 10 === 0 ? [] : ['millimeter']),
+    ],
     purpose: ctx.purpose,
     explanationNl: [
       `Het potlood begint bij ${startMm} mm en eindigt bij ${endMm} mm.`,
