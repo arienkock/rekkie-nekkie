@@ -138,6 +138,41 @@ describe('generators', () => {
     }
   })
 
+  it('clock coaching points at the right hour: already passed vs still coming', () => {
+    // "Welk uur komt eraan?" is upcoming-hour framing. It fits "half 9",
+    // "kwart voor 9" and "10 voor 9", where the named hour has not arrived —
+    // and contradicts "5 over 2", where the named hour is already behind us.
+    const upcoming = /komt (er nog aan|eraan)|eraan komt|nog niet geweest/i
+    const alreadyPassed = /al geweest/i
+    for (const skill of [
+      'TIME.READ.MinuteFive',
+      'TIME.READ.DutchHourQuarter',
+      'TIME.READ.DutchHourOffset',
+      'TIME.READ.DutchHalfNextHour',
+      'TIME.READ.DutchPhrasingHalfHourOffset',
+    ]) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `dir:${skill}:${i}`, tier }))
+          const step = ex.steps[0]!
+          const phrase = step.promptNl.match(/"([^"]+)"/)![1]!
+          // "voor" and "half" name the hour ahead; "uur" and "over" the one behind.
+          const namesUpcomingHour = /\b(voor|half)\b/.test(phrase)
+          const copy = [
+            ex.instructionNl,
+            ...ex.hintsNl!,
+            ...ex.explanationNl.slice(2),
+            step.validate('7:07').feedbackNl,
+          ]
+          for (const line of copy) {
+            const forbidden = namesUpcomingHour ? alreadyPassed : upcoming
+            expect(line, `${phrase} / ${skill}`).not.toMatch(forbidden)
+          }
+        }
+      }
+    }
+  })
+
   it('clock hints illustrate the rule without giving away the answer', () => {
     for (let i = 0; i < 40; i++) {
       const ex = generateExercise(
