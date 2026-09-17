@@ -3,7 +3,7 @@
  * summary, and progress dashboard. All client-side; progress persists in
  * localStorage via the LearnerStore.
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLearnerStore } from './hooks/use-learner-store'
 import { useViewportFit } from './hooks/use-viewport-fit'
 import { ExerciseView } from './components/ExerciseView'
@@ -17,6 +17,15 @@ export default function App() {
   const [view, setView] = useState<View>('home')
   // Keep the visible layout in sync with browser chrome and the OSK.
   useViewportFit()
+
+  // The "minder beweging" preference is a setting, not just an OS hint: mirror
+  // it onto the document so the stylesheet can switch off entrances and
+  // transitions the same way `prefers-reduced-motion` does. Every animated
+  // state stays readable without its animation (docs §4.3).
+  const reducedMotion = store.snapshot.preferences.reducedMotion
+  useEffect(() => {
+    document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false'
+  }, [reducedMotion])
 
   const start = () => {
     store.startSession()
@@ -52,7 +61,14 @@ export default function App() {
         </h1>
         <p className="tagline">Rekenen · groep 5/6</p>
         <nav className="app-nav">
-          <button type="button" className="nav-link" aria-current={view === 'home' ? 'page' : undefined} onClick={() => setView('home')}>
+          {/* A running session lives under Vandaag, so the tab stays marked
+              instead of leaving no tab current for the whole session. */}
+          <button
+            type="button"
+            className="nav-link"
+            aria-current={view === 'home' || view === 'exercise' ? 'page' : undefined}
+            onClick={() => setView('home')}
+          >
             Vandaag
           </button>
           <button type="button" className="nav-link" aria-current={view === 'progress' ? 'page' : undefined} onClick={() => setView('progress')}>
@@ -198,29 +214,74 @@ function HomeStats({ store }: { store: LearnerStore }) {
   )
 }
 
+/** A note about something that just happened. `seq` re-mounts it on every
+ *  report so repeating an action visibly repeats its confirmation, and the
+ *  tone distinguishes "done" from "that did not work" by icon *and* colour. */
+interface Note {
+  tone: 'ok' | 'warn'
+  text: string
+  seq: number
+}
+
+function StatusNote({ note }: { note: Note | null }) {
+  return (
+    <div className="note-slot" role="status" aria-live="polite">
+      {note && (
+        <p key={note.seq} className={`note note-${note.tone}`}>
+          <span aria-hidden>{note.tone === 'ok' ? '✓' : '⚠️'}</span> {note.text}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function SettingsView({ store }: { store: LearnerStore }) {
   const [nickname, setNickname] = useState(store.snapshot.preferences.nickname ?? '')
   const [importText, setImportText] = useState('')
-  const [importStatus, setImportStatus] = useState<string | null>(null)
+  const [nameNote, setNameNote] = useState<Note | null>(null)
+  const [dataNote, setDataNote] = useState<Note | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const saved = store.snapshot.preferences.nickname ?? ''
+  // Pressing Opslaan used to change nothing on screen. Now the field says
+  // whether what is typed matches what is stored, before and after saving.
+  const unsavedName = nickname.trim() !== saved
+
+  const report = (set: (n: Note) => void, tone: Note['tone'], text: string) =>
+    set({ tone, text, seq: Date.now() })
 
   const save = () => {
     store.savePreferences({ nickname: nickname.trim() ? nickname.trim() : null })
+    if (store.saveFailed) {
+      report(setNameNote, 'warn', 'Opslaan lukte niet. Probeer het zo nog eens.')
+    } else {
+      report(setNameNote, 'ok', nickname.trim() ? `Opgeslagen als ${nickname.trim()}.` : 'Naam gewist.')
+    }
   }
 
   const exportAll = () => {
-    const blob = new Blob([store.exportJson()], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'rekkie-nekkie-voortgang.json'
-    a.click()
-    URL.revokeObjectURL(url)
+    try {
+      const blob = new Blob([store.exportJson()], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'rekkie-nekkie-voortgang.json'
+      a.click()
+      URL.revokeObjectURL(url)
+      report(setDataNote, 'ok', 'Bestand rekkie-nekkie-voortgang.json gedownload.')
+    } catch {
+      report(setDataNote, 'warn', 'Exporteren lukte niet op dit apparaat.')
+    }
   }
 
   const importFromText = (text: string) => {
     const ok = store.importJson(text)
-    setImportStatus(ok ? 'Voortgang geladen ✓' : 'Dat bestand bevat geen geldige voortgang.')
+    if (ok) {
+      report(setDataNote, 'ok', 'Voortgang geladen. Je ziet hem terug bij Voortgang.')
+      setNickname(store.snapshot.preferences.nickname ?? '')
+    } else {
+      report(setDataNote, 'warn', 'Dat bestand bevat geen geldige voortgang.')
+    }
   }
 
   return (
@@ -235,13 +296,19 @@ function SettingsView({ store }: { store: LearnerStore }) {
             type="text"
             value={nickname}
             placeholder="bijv. Noor"
-            onChange={(e) => setNickname(e.target.value)}
+            onChange={(e) => {
+              setNickname(e.target.value)
+              // The note describes what was saved; editing makes it history.
+              setNameNote(null)
+            }}
             aria-label="Je naam"
           />
           <button type="button" className="btn primary" onClick={save}>
             Opslaan
           </button>
+          {unsavedName && <span className="pending-hint">Nog niet opgeslagen</span>}
         </div>
+        <StatusNote note={nameNote} />
       </div>
 
       <div className="settings-card">
@@ -269,13 +336,16 @@ function SettingsView({ store }: { store: LearnerStore }) {
             e.target.value = ''
           }}
         />
-        {importStatus && <p className="import-status">{importStatus}</p>}
+        <StatusNote note={dataNote} />
         <details>
           <summary>Of plak een exportcode</summary>
           <textarea
             className="import-textarea"
             value={importText}
-            onChange={(e) => setImportText(e.target.value)}
+            onChange={(e) => {
+              setImportText(e.target.value)
+              setDataNote(null)
+            }}
             rows={4}
             placeholder="Plak hier de JSON van een export…"
           />
