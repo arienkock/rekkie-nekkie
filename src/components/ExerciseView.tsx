@@ -237,7 +237,7 @@ function describeAnswerType(step: GeneratedStep): string {
     case 'integer':
       return step.answerType.unit ? `heel getal in ${step.answerType.unit}` : 'heel getal'
     case 'time':
-      return 'digitale tijd (bijv. 8:20)'
+      return 'digitale tijd (bijv. 08:20)'
     case 'money':
       return 'bedrag met komma (bijv. 4,50)'
     case 'quotient-remainder':
@@ -341,7 +341,7 @@ function StepInput({
 function placeholderFor(step: GeneratedStep): string {
   switch (step.answerType.kind) {
     case 'time':
-      return '8:20'
+      return '08:20'
     case 'money':
       return '4,50'
     case 'quotient-remainder':

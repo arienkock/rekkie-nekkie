@@ -59,6 +59,24 @@ export function toDutchVerbalTime(t: ClockTime): string {
 }
 
 /**
+ * The hour numeral the phrase actually says: "5 over 2" names 2 (the hour just
+ * passed), "half 3" and "10 voor 3" name 3 (the hour still coming).
+ */
+export function dutchNamedHour12(t: ClockTime): number {
+  return t.minutes >= 20 ? nextHour12(t.hours) : dutch12(t.hours)
+}
+
+/**
+ * Does this item exercise the 12 o'clock wrap? True when the numeral 12 is
+ * involved on either side of the boundary — "5 over 12" (00:05), "half 1"
+ * (00:30), "kwart voor 12" (11:45) — which is the critical variation the KC
+ * graph requires before Level 3 on the Dutch phrasing skills.
+ */
+export function isTwelveWrap(t: ClockTime): boolean {
+  return dutch12(t.hours) === 12 || dutchNamedHour12(t) === 12
+}
+
+/**
  * The structural family a Dutch clock phrase belongs to. Coaching text (rules,
  * hints, feedback) differs per family: "5 over 2" needs the over-the-hour rule,
  * not the half-hour rule, so callers key their copy on this instead of assuming

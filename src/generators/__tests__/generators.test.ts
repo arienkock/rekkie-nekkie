@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { generateExercise } from '../index'
+import { generateExercise, SUPPORTED_SKILLS } from '../index'
+import { getSkill } from '../../domain/knowledge-graph'
 import { SeededRng } from '../../engine/rng'
 import { fromMinuteOfDay } from '../../domain/dutch-time'
 import type { GeneratorContext } from '../types'
@@ -230,6 +231,103 @@ describe('generators', () => {
         }
       }
     }
+  })
+
+  /**
+   * Critical variation tags no generator can currently emit, which leaves
+   * Level 3 unreachable for these skills. Each needs a product decision
+   * rather than a tag rename, so they are pinned here: closing one, or
+   * opening a new one, fails this test rather than passing silently.
+   *   - cropped-ruler: needs a ruler widget that does not start at 0 mm.
+   *   - inverse-verification: money-change is a single step; its own header
+   *     says it should also verify price + change = paid.
+   *   - both-directions: the conversion generator emits up-scale/down-scale
+   *     per item; nothing emits a combined tag.
+   */
+  const KNOWN_TAG_GAPS: Record<string, string[]> = {
+    'MEAS.RULER.Offset': ['cropped-ruler'],
+    'MONEY.CHANGE.Complement': ['inverse-verification'],
+    'MEAS.LENGTH.Convert': ['both-directions'],
+    'MEAS.MASS.Convert': ['both-directions'],
+    'MEAS.CAPACITY.Convert': ['both-directions'],
+  }
+
+  it('every generator can produce its KC\'s critical variation tags', () => {
+    // criticalVariationCovered() gates Level 3 on having succeeded at EVERY
+    // critical tag, so a tag no generator emits makes Level 3 unreachable.
+    for (const skillId of SUPPORTED_SKILLS) {
+      const required = getSkill(skillId).criticalVariationTags
+      if (required.length === 0) continue
+      const produced = new Set<string>()
+      for (const tier of ['S0', 'S1', 'S2', 'S3'] as const) {
+        // Bands matter: chained carries only appear at 'harder', which the
+        // store selects once masteryProbability reaches .85.
+        for (const band of ['easier', 'standard', 'harder'] as const) {
+          for (let i = 0; i < 100; i++) {
+            const seed = `tag:${skillId}:${band}:${i}`
+            for (const t of generateExercise(ctx({ primarySkillId: skillId, seed, tier, band })).variationTags) {
+              produced.add(t)
+            }
+          }
+        }
+      }
+      const missing = required.filter((t) => !produced.has(t))
+      expect(missing, `${skillId} emits ${[...produced].join(', ')}`).toEqual(KNOWN_TAG_GAPS[skillId] ?? [])
+    }
+  })
+
+  it('clock 12-wrap tag marks the items that actually wrap', () => {
+    // The tag used to key off hour12, but minutes 25..40 shift the hour back
+    // one step, so "half 12" (11:30) was tagged 12-wrap and the real wrap
+    // "half 1" (00:30) was tagged standard.
+    const wrapped = new Map<string, boolean>()
+    for (const skill of CLOCK_SKILLS) {
+      for (let i = 0; i < 400; i++) {
+        const ex = generateExercise(ctx({ primarySkillId: skill, seed: `wrap:${skill}:${i}`, tier: 'S2' }))
+        const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+        wrapped.set(phrase, ex.variationTags.includes('12-wrap'))
+      }
+    }
+    expect(wrapped.get('half 1')).toBe(true)
+    expect(wrapped.get('half 12')).toBe(true)
+    expect(wrapped.get('half 11')).toBe(false)
+    expect(wrapped.get('5 over 12')).toBe(true)
+    expect(wrapped.get('10 voor 1')).toBe(true)
+    expect(wrapped.get('kwart voor 12')).toBe(true)
+    expect(wrapped.get('5 over 11')).toBe(false)
+    expect(wrapped.get('10 voor half 2')).toBe(false)
+    // Exhaustive cross-check: the wrap is exactly "the phrase says 12", plus
+    // the forms that name the hour ahead when that hour is 1 (i.e. 12 has just
+    // passed). "5 over 1" names the hour behind, so it is not a wrap.
+    for (const [phrase, isWrap] of wrapped) {
+      const numerals = phrase.match(/\d{1,2}/g)!
+      const named = Number(numerals[numerals.length - 1])
+      const namesHourAhead = /\b(voor|half)\b/.test(phrase)
+      expect(named === 12 || (named === 1 && namesHourAhead), `${phrase} tagged ${isWrap}`).toBe(isWrap)
+    }
+  })
+
+  it('attributes the half-direction error at every offset, not just 10 voor half', () => {
+    // Mirroring the offset across the half-hour anchor is the same error for
+    // "5 voor half 9" (08:25 → 08:35) as for "10 voor half 9" (08:20 → 08:40);
+    // only the latter used to be attributed.
+    const seen = new Map<number, string>()
+    for (let i = 0; i < 400; i++) {
+      const ex = generateExercise(
+        ctx({ primarySkillId: 'TIME.READ.DutchPhrasingHalfHourOffset', seed: `mir${i}`, tier: 'S2' }),
+      )
+      const minuteOfDay = Number(ex.fingerprint.split(':')[1])
+      const minutes = minuteOfDay % 60
+      const mirrored = (((minuteOfDay + 2 * (30 - minutes)) % 720) + 720) % 720
+      const v = ex.steps[0]!.validate(`${Math.floor(mirrored / 60)}:${String(mirrored % 60).padStart(2, '0')}`)
+      expect(v.isCorrect, ex.steps[0]!.promptNl).toBe(false)
+      expect(v.misconceptionId, ex.steps[0]!.promptNl).toBe('MC.TIME.HalfDirection')
+      seen.set(minutes, v.feedbackNl)
+    }
+    expect([...seen.keys()].sort((a, b) => a - b)).toEqual([20, 25, 35, 40])
+    expect(seen.get(25)).toContain('5 minuten')
+    expect(seen.get(35)).toContain('"Over"')
+    expect(seen.get(40)).toContain('10 minuten')
   })
 
   it('validates its own answers (correct and misconception signatures)', () => {

@@ -6,11 +6,17 @@
  */
 import type { GeneratedExercise } from '../domain/types'
 import type { DutchPhraseShape } from '../domain/dutch-time'
-import { formatDigital, toDutchVerbalTime, fromMinuteOfDay, dutchPhraseShape } from '../domain/dutch-time'
+import {
+  dutchPhraseShape,
+  formatDigital,
+  fromMinuteOfDay,
+  halfHourReferenceError,
+  isTwelveWrap,
+  toDutchVerbalTime,
+} from '../domain/dutch-time'
 import { SeededRng } from '../engine/rng'
 import type { GeneratorContext } from './types'
 import { parseTimeAnswer, sameClockTime, uniqueId } from './types'
-import { halfHourReferenceError } from '../domain/dutch-time'
 
 const MINUTES_BY_SKILL: Record<string, number[]> = {
   'TIME.READ.MinuteFive': [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55],
@@ -51,6 +57,22 @@ interface WorkedExample {
 interface HalfAnchor {
   numeral: string
   digital: string
+}
+
+/**
+ * The critical-variation tag each family contributes. These are the names the
+ * KC graph uses in `criticalVariationTags`, and `criticalVariationCovered`
+ * gates Level 3 on having succeeded at every one of them.
+ */
+const VARIATION_TAG_BY_SHAPE: Record<DutchPhraseShape, string> = {
+  whole: 'uur',
+  'over-hour': 'over',
+  'quarter-over': 'kwart-over',
+  'to-half': 'voor-half',
+  half: 'half',
+  'past-half': 'over-half',
+  'quarter-to': 'kwart-voor',
+  'to-hour': 'voor',
 }
 
 function coachingFor(
@@ -172,7 +194,7 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
   // over this item's answer. Whole-hour shifts keep the shape; the first
   // candidate that avoids the 0 o'clock hour is used, because an example
   // reading `"12 uur" is 00:00` teaches a notation the child is not asked to
-  // write (the prompt asks for 8:20-style input).
+  // write (the prompt asks for 08:20-style input).
   const exampleShift = [180, 300, 420].find((d) => fromMinuteOfDay((minuteOfDay + d) % 720).hours !== 0)!
   const exampleTime = fromMinuteOfDay((minuteOfDay + exampleShift) % 720)
   // The hour "half"/"voor" refers to, for copy that names the child's phrase.
@@ -183,8 +205,9 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
     halfNumeral === null
       ? null
       : { numeral: halfNumeral, digital: formatDigital(fromMinuteOfDay(Math.floor(minuteOfDay / 60) * 60 + 30)) }
+  const shape = dutchPhraseShape(minutes)
   const coaching = coachingFor(
-    dutchPhraseShape(minutes),
+    shape,
     { phrase: toDutchVerbalTime(exampleTime), digital: formatDigital(exampleTime) },
     halfAnchor,
   )
@@ -198,7 +221,7 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
     steps: [
       {
         id: 'digital',
-        promptNl: `Het is "${phrase}". Schrijf de digitale tijd (bijv. 8:20).`,
+        promptNl: `Het is "${phrase}". Schrijf de digitale tijd (bijv. 08:20).`,
         answerType: { kind: 'time', use24Hour: false },
         solutionNl: formatDigital(time),
         skillTarget: { skillId: skill, role: 'primary' },
@@ -206,12 +229,14 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
         validate: (answer) => {
           const v = parseTimeAnswer(answer as string | number)
           if (v === null) {
-            return { isCorrect: false, feedbackNl: 'Gebruik de vorm uur:minuten, bijvoorbeeld 8:20.', misconceptionId: null, invalidFormat: true }
+            return { isCorrect: false, feedbackNl: 'Gebruik de vorm uur:minuten, bijvoorbeeld 08:20.', misconceptionId: null, invalidFormat: true }
           }
           if (sameClockTime(v, target12)) {
             return { isCorrect: true, feedbackNl: `Klopt: ${phrase} = ${formatDigital(time)}.`, misconceptionId: null }
           }
-          // Half-reference error: "half 9" read as 09:30.
+          // Half-reference error: "half 9" read as 09:30. The null check only
+          // narrows the numeral for the message; halfHourReferenceError already
+          // returns false for a phrase without "half".
           if (halfNumeral !== null && halfHourReferenceError(phrase, v)) {
             return {
               isCorrect: false,
@@ -219,12 +244,24 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
               misconceptionId: 'MC.TIME.HalfReference',
             }
           }
-          // Half-direction error: "10 voor half 9" answered as 08:40 (mirrored).
-          if (minutes === 20 && halfNumeral !== null && v % 720 === ((minuteOfDay + 20) % 720)) {
-            return {
-              isCorrect: false,
-              feedbackNl: `"Voor" betekent teruggaan in de tijd. Ga terug naar half ${halfNumeral} en dan nog 10 minuten.`,
-              misconceptionId: 'MC.TIME.HalfDirection',
+          // Half-direction error: counting the offset the wrong way round the
+          // half-hour anchor. "10 voor half 9" (08:20) answered as 08:40, and
+          // equally "5 over half 9" (08:35) answered as 08:25 — mirroring the
+          // offset across the anchor lands 2×(30 − minutes) away. This used to
+          // fire for minutes === 20 only, leaving the other three offsets of
+          // the same error unattributed.
+          if ((shape === 'to-half' || shape === 'past-half') && halfNumeral !== null) {
+            const mirrored = (((minuteOfDay + 2 * (30 - minutes)) % 720) + 720) % 720
+            if (v % 720 === mirrored) {
+              const offset = Math.abs(30 - minutes)
+              return {
+                isCorrect: false,
+                feedbackNl:
+                  shape === 'to-half'
+                    ? `"Voor" betekent teruggaan in de tijd. Ga terug naar half ${halfNumeral} en dan nog ${offset} minuten.`
+                    : `"Over" betekent vooruit in de tijd. Ga vanaf half ${halfNumeral} nog ${offset} minuten verder.`,
+                misconceptionId: 'MC.TIME.HalfDirection',
+              }
             }
           }
           return { isCorrect: false, feedbackNl: coaching.fallbackFeedbackNl, misconceptionId: null }
@@ -242,7 +279,10 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
     supportingSkillIds: [],
     difficultyBand: ctx.band,
     representation: supported ? 'pictorial' : 'symbolic',
-    variationTags: [hour12 === 12 ? '12-wrap' : 'standard'],
+    // NOT derived from hour12: for minutes 25..40 the hour is shifted back a
+    // step above, so hour12 === 12 is 11:30 ("half 12") while the genuine wrap
+    // 00:30 ("half 1") sits at hour12 === 1. Ask the item itself.
+    variationTags: [VARIATION_TAG_BY_SHAPE[shape], isTwelveWrap(time) ? '12-wrap' : 'standard'],
     purpose: ctx.purpose,
     explanationNl: [phrase, formatDigital(time), coaching.ruleNl],
     hintsNl: coaching.hintsNl,
