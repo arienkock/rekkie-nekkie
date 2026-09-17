@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { generateExercise } from '../index'
 import { SeededRng } from '../../engine/rng'
+import { fromMinuteOfDay } from '../../domain/dutch-time'
 import type { GeneratorContext } from '../types'
 
 function ctx(overrides: Partial<GeneratorContext> = {}): GeneratorContext {
@@ -173,13 +174,61 @@ describe('generators', () => {
     }
   })
 
+  const CLOCK_SKILLS = [
+    'TIME.READ.MinuteFive',
+    'TIME.READ.DutchHourQuarter',
+    'TIME.READ.DutchHourOffset',
+    'TIME.READ.DutchHalfNextHour',
+    'TIME.READ.DutchPhrasingHalfHourOffset',
+  ]
+
+  /** Every clock string shown BEFORE the child has answered. */
+  function preAnswerCopy(ex: ReturnType<typeof generateExercise>): string[] {
+    // explanationNl[0..1] are the phrase and the solution by design; the UI
+    // only renders them once every step is solved.
+    return [ex.instructionNl, ...ex.hintsNl!, ...ex.explanationNl.slice(2)]
+  }
+
   it('clock hints illustrate the rule without giving away the answer', () => {
-    for (let i = 0; i < 40; i++) {
-      const ex = generateExercise(
-        ctx({ primarySkillId: 'TIME.READ.MinuteFive', seed: `leak${i}`, tier: 'S1' }),
-      )
-      const solution = ex.steps[0]!.solutionNl
-      for (const hint of ex.hintsNl!) expect(hint).not.toContain(solution)
+    for (const skill of CLOCK_SKILLS) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `leak:${skill}:${i}`, tier }))
+          const { hours, minutes } = fromMinuteOfDay(Number(ex.fingerprint.split(':')[1]))
+          const mm = String(minutes).padStart(2, '0')
+          // The solution reaches the screen as 08:30, and a child reads and
+          // writes it as 8:30 — a substring check against solutionNl alone
+          // misses the second form, which is how this leak survived before.
+          const notations = [ex.steps[0]!.solutionNl, `${hours}:${mm}`, `${hours % 12 === 0 ? 12 : hours % 12}:${mm}`]
+          for (const line of preAnswerCopy(ex)) {
+            for (const n of notations) expect(line, `${skill} / ${ex.steps[0]!.promptNl}`).not.toContain(n)
+          }
+        }
+      }
+    }
+  })
+
+  it('clock copy names the half hour from the child\'s own sentence', () => {
+    // "10 voor half 3" coached with 'Zoek het halve uur in de zin: "half 9"'
+    // sends the child hunting for a phrase that is not in front of them.
+    for (const skill of CLOCK_SKILLS) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `anchor:${skill}:${i}`, tier }))
+          const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+          const own = phrase.match(/half (\d{1,2})/)?.[1]
+          if (own === undefined) continue
+          // The worked example deliberately names another hour; it announces
+          // itself as an example rather than describing the child's sentence.
+          const describesThisItem = preAnswerCopy(ex).filter((l) => !l.startsWith('Zo werkt het:'))
+          for (const line of describesThisItem) {
+            for (const [, named] of line.matchAll(/half (\d{1,2})/gi)) {
+              expect(named, `${phrase} / ${line}`).toBe(own)
+            }
+          }
+          expect(describesThisItem.some((l) => l.includes(`half ${own}`) || l.includes(`Half ${own}`)), phrase).toBe(true)
+        }
+      }
     }
   })
 

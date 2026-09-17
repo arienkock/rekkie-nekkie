@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dutchPhraseShape,
   formatDigital,
   fromMinuteOfDay,
   halfHourReferenceError,
@@ -37,6 +38,35 @@ describe('Dutch verbal time engine', () => {
       const phrase = toDutchVerbalTime(time)
       const back = parseDutchVerbalTime(phrase)
       expect(back).toBe(minuteOfDay)
+    }
+  })
+
+  it('classifies each five-minute case into its phrase family', () => {
+    expect(dutchPhraseShape(0)).toBe('whole')
+    expect(dutchPhraseShape(5)).toBe('over-hour')
+    expect(dutchPhraseShape(10)).toBe('over-hour')
+    expect(dutchPhraseShape(15)).toBe('quarter-over')
+    expect(dutchPhraseShape(20)).toBe('to-half')
+    expect(dutchPhraseShape(25)).toBe('to-half')
+    expect(dutchPhraseShape(30)).toBe('half')
+    expect(dutchPhraseShape(35)).toBe('past-half')
+    expect(dutchPhraseShape(40)).toBe('past-half')
+    expect(dutchPhraseShape(45)).toBe('quarter-to')
+    expect(dutchPhraseShape(50)).toBe('to-hour')
+    expect(dutchPhraseShape(55)).toBe('to-hour')
+  })
+
+  it('rejects minutes outside the five-minute resolution', () => {
+    expect(() => dutchPhraseShape(7)).toThrow()
+    expect(() => dutchPhraseShape(60)).toThrow()
+  })
+
+  it('assigns a family to every phrase the engine can produce', () => {
+    // The coaching table switches exhaustively on the family, so a phrase
+    // without one would be a missing branch rather than a wrong string.
+    for (let minuteOfDay = 0; minuteOfDay < 720; minuteOfDay += 5) {
+      const { minutes } = fromMinuteOfDay(minuteOfDay)
+      expect(dutchPhraseShape(minutes)).toBeTruthy()
     }
   })
 

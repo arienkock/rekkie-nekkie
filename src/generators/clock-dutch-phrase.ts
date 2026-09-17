@@ -42,7 +42,22 @@ interface WorkedExample {
   digital: string
 }
 
-function coachingFor(shape: DutchPhraseShape, example: WorkedExample): PhraseCoaching {
+/**
+ * The half-hour this item's own phrase is anchored on: "10 voor half 3" is
+ * anchored on half 3 = 02:30. Copy that tells the child to look "in de zin"
+ * has to name THAT hour; a fixed "half 9" sends them hunting for a phrase
+ * that is not in front of them.
+ */
+interface HalfAnchor {
+  numeral: string
+  digital: string
+}
+
+function coachingFor(
+  shape: DutchPhraseShape,
+  example: WorkedExample,
+  half: HalfAnchor | null,
+): PhraseCoaching {
   const worked = `Zo werkt het: "${example.phrase}" is ${example.digital}.`
   switch (shape) {
     case 'whole':
@@ -80,9 +95,9 @@ function coachingFor(shape: DutchPhraseShape, example: WorkedExample): PhraseCoa
       }
     case 'to-half':
       return {
-        supportedInstructionNl: 'Onthoud: half betekent dat het uur ERAAN KOMT ("half 9" is 08:30); bij "voor half" tel je daar nog van terug.',
+        supportedInstructionNl: `Onthoud: "half ${half!.numeral}" is ${half!.digital}; bij "voor half" tel je daar minuten vanaf.`,
         hintsNl: [
-          'Zoek eerst het halve uur in de zin: "half 9" is 8:30.',
+          `Zoek eerst het halve uur in de zin: "half ${half!.numeral}" is ${half!.digital}.`,
           '"Voor" betekent teruggaan in de tijd: begin bij dat halve uur en tel de minuten eraf.',
           worked,
         ],
@@ -91,10 +106,12 @@ function coachingFor(shape: DutchPhraseShape, example: WorkedExample): PhraseCoa
       }
     case 'half':
       return {
-        supportedInstructionNl: 'Onthoud: half betekent dat het uur ERAAN KOMT. "Half 9" is 08:30.',
+        // "Half 9" is exactly this item's answer, so the copy states the rule
+        // and leaves the digital time to the worked example on another hour.
+        supportedInstructionNl: `Onthoud: half betekent dat het uur ERAAN KOMT. Het is nog geen ${half!.numeral} uur.`,
         hintsNl: [
-          'Kijk goed naar het uur in de zin: welk uur komt eraan?',
-          '"Half 9" betekent: nog een half uur, dán is het 9 uur — dus 8:30.',
+          'Kijk goed naar het uur in de zin: dat uur komt er nog aan.',
+          `"Half ${half!.numeral}" betekent: nog een half uur, dán is het ${half!.numeral} uur.`,
           worked,
         ],
         ruleNl: '"Half" hoort bij het uur dat eraan komt: een half uur eerder.',
@@ -102,9 +119,9 @@ function coachingFor(shape: DutchPhraseShape, example: WorkedExample): PhraseCoa
       }
     case 'past-half':
       return {
-        supportedInstructionNl: 'Onthoud: half betekent dat het uur ERAAN KOMT ("half 9" is 08:30); bij "over half" tel je daar nog bij op.',
+        supportedInstructionNl: `Onthoud: "half ${half!.numeral}" is ${half!.digital}; bij "over half" tel je daar minuten bij op.`,
         hintsNl: [
-          'Zoek eerst het halve uur in de zin: "half 9" is 8:30.',
+          `Zoek eerst het halve uur in de zin: "half ${half!.numeral}" is ${half!.digital}.`,
           '"Over" betekent vooruit in de tijd: begin bij dat halve uur en tel de minuten erbij op.',
           worked,
         ],
@@ -151,15 +168,26 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
   const phrase = toDutchVerbalTime(time)
   const target12 = minuteOfDay % 720
 
-  // Same phrase shape, three hours later: illustrates the rule without
-  // handing over this item's answer.
-  const exampleTime = fromMinuteOfDay((minuteOfDay + 180) % 720)
-  const coaching = coachingFor(dutchPhraseShape(minutes), {
-    phrase: toDutchVerbalTime(exampleTime),
-    digital: formatDigital(exampleTime),
-  })
-  // The hour "half"/"voor" refers to, for feedback that names the child's phrase.
+  // Same phrase shape a few hours away: illustrates the rule without handing
+  // over this item's answer. Whole-hour shifts keep the shape; the first
+  // candidate that avoids the 0 o'clock hour is used, because an example
+  // reading `"12 uur" is 00:00` teaches a notation the child is not asked to
+  // write (the prompt asks for 8:20-style input).
+  const exampleShift = [180, 300, 420].find((d) => fromMinuteOfDay((minuteOfDay + d) % 720).hours !== 0)!
+  const exampleTime = fromMinuteOfDay((minuteOfDay + exampleShift) % 720)
+  // The hour "half"/"voor" refers to, for copy that names the child's phrase.
   const halfNumeral = phrase.match(/half (\d{1,2})/)?.[1] ?? null
+  // "10 voor half 3" (02:20) and "5 over half 3" (02:35) are both anchored on
+  // half 3 = 02:30, i.e. minute 30 of the item's own hour block.
+  const halfAnchor =
+    halfNumeral === null
+      ? null
+      : { numeral: halfNumeral, digital: formatDigital(fromMinuteOfDay(Math.floor(minuteOfDay / 60) * 60 + 30)) }
+  const coaching = coachingFor(
+    dutchPhraseShape(minutes),
+    { phrase: toDutchVerbalTime(exampleTime), digital: formatDigital(exampleTime) },
+    halfAnchor,
+  )
   const supported = ctx.tier === 'S0' || ctx.tier === 'S1'
 
   return {
