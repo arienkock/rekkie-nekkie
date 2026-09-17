@@ -299,11 +299,17 @@ describe('LearnerStore regression: adaptive engine health', () => {
       { exerciseId: 'e1', visitId: 'v1', at: new Date().toISOString(), correct: false, transfer: false, inverse: false, efficientStrategy: false, representation: 'symbolic', variationTags: [] },
       { exerciseId: 'e2', visitId: 'v1', at: new Date().toISOString(), correct: false, transfer: false, inverse: false, efficientStrategy: false, representation: 'symbolic', variationTags: [] },
     ]
-    // Answer the primary step incorrectly on an independent tier.
+    // Answer the primary step incorrectly on an independent tier. The answer
+    // has to be WRONG but PARSEABLE: unparseable input stays in `working` and
+    // records no evidence at all, so a bare -999 silently passed this test
+    // whenever the selector happened to pick a time, money or
+    // quotient-remainder item (~35% of runs).
     session.currentScaffold = 'S2'
     for (const step of session.exercise.steps) {
       if (step.skillTarget.role === 'primary') {
-        store.submitStepAnswer(step.id, -999)
+        const validation = store.submitStepAnswer(step.id, wrongParseableAnswer(step))
+        expect(validation.invalidFormat, `${session.exercise.primarySkillId}/${step.answerType.kind}`).toBeFalsy()
+        expect(validation.isCorrect, `${session.exercise.primarySkillId}/${step.answerType.kind}`).toBe(false)
       }
     }
     store.completeExercise()
@@ -312,3 +318,24 @@ describe('LearnerStore regression: adaptive engine health', () => {
     expect(after.highestDemonstratedLevel).toBe(2)
   })
 })
+
+/**
+ * A wrong answer the step's parser accepts, for every answer kind in the
+ * registry. Clock solutions are on the five-minute grid so 0:01 is never
+ * right; change is always ≥ €1,20 so 0,01 is never right; DHTE numbers are
+ * four digits so all-zero is never right.
+ */
+function wrongParseableAnswer(step: GeneratedStep): string | number | Record<string, string> {
+  switch (step.answerType.kind) {
+    case 'time':
+      return '0:01'
+    case 'money':
+      return '0,01'
+    case 'quotient-remainder':
+      return { quotient: '-999', remainder: '-999' }
+    case 'digits':
+      return { D: '0', H: '0', T: '0', E: '0' }
+    default:
+      return -999
+  }
+}

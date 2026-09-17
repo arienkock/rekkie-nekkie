@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { generateExercise } from '../index'
+import { generateExercise, SUPPORTED_SKILLS } from '../index'
+import { getSkill } from '../../domain/knowledge-graph'
 import { SeededRng } from '../../engine/rng'
+import { fromMinuteOfDay } from '../../domain/dutch-time'
 import type { GeneratorContext } from '../types'
 
 function ctx(overrides: Partial<GeneratorContext> = {}): GeneratorContext {
@@ -102,6 +104,264 @@ describe('generators', () => {
       expect([20, 25, 35, 40]).toContain(minuteOfDay)
     }
     void ex
+  })
+
+  it('clock coaching text matches the phrase, not the half-hour rule', () => {
+    // Regression: "5 over 2" used to be taught with "half 9 is 08:30" — text
+    // about a rule the item does not exercise.
+    const halfWord = /\bhal(f|ve)\b/i
+    for (const skill of [
+      'TIME.READ.MinuteFive',
+      'TIME.READ.DutchHourQuarter',
+      'TIME.READ.DutchHourOffset',
+      'TIME.READ.DutchHalfNextHour',
+      'TIME.READ.DutchPhrasingHalfHourOffset',
+    ]) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `coach:${skill}:${i}`, tier }))
+          const step = ex.steps[0]!
+          const phrase = step.promptNl.match(/"([^"]+)"/)![1]!
+          const isHalfPhrase = halfWord.test(phrase)
+          // Wrong-but-unrecognised answer exercises the fallback feedback.
+          const wrong = step.validate('7:07')
+          expect(wrong.isCorrect).toBe(false)
+          const copy = [
+            ex.instructionNl,
+            ...ex.hintsNl!,
+            ...ex.explanationNl.slice(2),
+            wrong.feedbackNl,
+          ]
+          for (const line of copy) {
+            if (!isHalfPhrase) expect(line, `${phrase} / ${skill}`).not.toMatch(halfWord)
+          }
+        }
+      }
+    }
+  })
+
+  it('clock coaching points at the right hour: already passed vs still coming', () => {
+    // "Welk uur komt eraan?" is upcoming-hour framing. It fits "half 9",
+    // "kwart voor 9" and "10 voor 9", where the named hour has not arrived —
+    // and contradicts "5 over 2", where the named hour is already behind us.
+    const upcoming = /komt (er nog aan|eraan)|eraan komt|nog niet geweest|nog geen \d{1,2} uur/i
+    const alreadyPassed = /al geweest/i
+    for (const skill of [
+      'TIME.READ.MinuteFive',
+      'TIME.READ.DutchHourQuarter',
+      'TIME.READ.DutchHourOffset',
+      'TIME.READ.DutchHalfNextHour',
+      'TIME.READ.DutchPhrasingHalfHourOffset',
+    ]) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `dir:${skill}:${i}`, tier }))
+          const step = ex.steps[0]!
+          const phrase = step.promptNl.match(/"([^"]+)"/)![1]!
+          // "voor" and "half" name the hour ahead; "uur" and "over" the one behind.
+          const namesUpcomingHour = /\b(voor|half)\b/.test(phrase)
+          const copy = [
+            ex.instructionNl,
+            ...ex.hintsNl!,
+            ...ex.explanationNl.slice(2),
+            step.validate('7:07').feedbackNl,
+          ]
+          for (const line of copy) {
+            const forbidden = namesUpcomingHour ? alreadyPassed : upcoming
+            expect(line, `${phrase} / ${skill}`).not.toMatch(forbidden)
+          }
+        }
+      }
+    }
+  })
+
+  const CLOCK_SKILLS = [
+    'TIME.READ.MinuteFive',
+    'TIME.READ.DutchHourQuarter',
+    'TIME.READ.DutchHourOffset',
+    'TIME.READ.DutchHalfNextHour',
+    'TIME.READ.DutchPhrasingHalfHourOffset',
+  ]
+
+  /** Every clock string shown BEFORE the child has answered. */
+  function preAnswerCopy(ex: ReturnType<typeof generateExercise>): string[] {
+    // explanationNl[0..1] are the phrase and the solution by design; the UI
+    // only renders them once every step is solved.
+    return [ex.instructionNl, ...ex.hintsNl!, ...ex.explanationNl.slice(2)]
+  }
+
+  it('clock hints illustrate the rule without giving away the answer', () => {
+    for (const skill of CLOCK_SKILLS) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `leak:${skill}:${i}`, tier }))
+          const { hours, minutes } = fromMinuteOfDay(Number(ex.fingerprint.split(':')[1]))
+          const mm = String(minutes).padStart(2, '0')
+          // The solution reaches the screen as 08:30, and a child reads and
+          // writes it as 8:30 — a substring check against solutionNl alone
+          // misses the second form, which is how this leak survived before.
+          const notations = [ex.steps[0]!.solutionNl, `${hours}:${mm}`, `${hours % 12 === 0 ? 12 : hours % 12}:${mm}`]
+          for (const line of preAnswerCopy(ex)) {
+            for (const n of notations) expect(line, `${skill} / ${ex.steps[0]!.promptNl}`).not.toContain(n)
+          }
+        }
+      }
+    }
+  })
+
+  it('clock copy counts in the direction the phrase actually goes', () => {
+    // The framing guard above only forbids the wrong claim about the named
+    // hour, and the half-family copy stopped using that vocabulary entirely
+    // when it was rewritten — so nothing checked the offset direction, which
+    // is the thing "voor" versus "over" exists to teach.
+    const forward = /vooruit|verder|erbij op|\bbij op\b|\bop bij\b/i
+    const backward = /\bterug|eraf|vanaf|\baf van\b/i
+    for (const skill of CLOCK_SKILLS) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `cnt:${skill}:${i}`, tier }))
+          const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+          // A whole hour has no offset, and "half 9" is the anchor itself.
+          if (/^\d{1,2} uur$/.test(phrase) || /^half \d{1,2}$/.test(phrase)) continue
+          const countsBack = /\bvoor\b/.test(phrase)
+          const wanted = countsBack ? backward : forward
+          const forbidden = countsBack ? forward : backward
+          const copy = [ex.instructionNl, ...ex.hintsNl!, ...ex.explanationNl.slice(2), ex.steps[0]!.validate('7:07').feedbackNl]
+          // The worked example names another time, not a direction.
+          const directional = copy.filter((l) => !l.startsWith('Zo werkt het:'))
+          for (const line of directional) {
+            expect(line, `${phrase} / ${line}`).not.toMatch(forbidden)
+          }
+          expect(directional.some((l) => wanted.test(l)), `${phrase} says nothing about direction`).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('clock copy names the half hour from the child\'s own sentence', () => {
+    // "10 voor half 3" coached with 'Zoek het halve uur in de zin: "half 9"'
+    // sends the child hunting for a phrase that is not in front of them.
+    for (const skill of CLOCK_SKILLS) {
+      for (const tier of ['S1', 'S3'] as const) {
+        for (let i = 0; i < 30; i++) {
+          const ex = generateExercise(ctx({ primarySkillId: skill, seed: `anchor:${skill}:${i}`, tier }))
+          const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+          const own = phrase.match(/half (\d{1,2})/)?.[1]
+          if (own === undefined) continue
+          // The worked example deliberately names another hour; it announces
+          // itself as an example rather than describing the child's sentence.
+          const describesThisItem = preAnswerCopy(ex).filter((l) => !l.startsWith('Zo werkt het:'))
+          for (const line of describesThisItem) {
+            for (const [, named] of line.matchAll(/half (\d{1,2})/gi)) {
+              expect(named, `${phrase} / ${line}`).toBe(own)
+            }
+          }
+          expect(describesThisItem.some((l) => l.includes(`half ${own}`) || l.includes(`Half ${own}`)), phrase).toBe(true)
+        }
+      }
+    }
+  })
+
+  /**
+   * Critical variation tags no generator can currently emit, which leaves
+   * Level 3 unreachable for these skills. Each needs a product decision
+   * rather than a tag rename, so they are pinned here: closing one, or
+   * opening a new one, fails this test rather than passing silently.
+   *   - cropped-ruler: needs a ruler widget that does not start at 0 mm.
+   *   - inverse-verification: NOT a money-change detail. gateLevel3 in
+   *     engine/mastery.ts requires inverseSuccessCount >= 1, and the only
+   *     writer of that counter is `isInverse`, set from this one tag in
+   *     store/learner-store.ts. No generator emits it, so Level 3 is
+   *     unreachable for EVERY skill and the tag work above cannot pay off
+   *     until some archetype produces a real inverse-verification step
+   *     (money-change's own header says it should: price + change = paid).
+   *   - both-directions: the conversion generator emits up-scale/down-scale
+   *     per item; nothing emits a combined tag.
+   */
+  const KNOWN_TAG_GAPS: Record<string, string[]> = {
+    'MEAS.RULER.Offset': ['cropped-ruler'],
+    'MONEY.CHANGE.Complement': ['inverse-verification'],
+    'MEAS.LENGTH.Convert': ['both-directions'],
+    'MEAS.MASS.Convert': ['both-directions'],
+    'MEAS.CAPACITY.Convert': ['both-directions'],
+  }
+
+  it('every generator can produce its KC\'s critical variation tags', () => {
+    // criticalVariationCovered() gates Level 3 on having succeeded at EVERY
+    // critical tag, so a tag no generator emits makes Level 3 unreachable.
+    for (const skillId of SUPPORTED_SKILLS) {
+      const required = getSkill(skillId).criticalVariationTags
+      if (required.length === 0) continue
+      const produced = new Set<string>()
+      for (const tier of ['S0', 'S1', 'S2', 'S3'] as const) {
+        // Bands matter: chained carries only appear at 'harder', which the
+        // store selects once masteryProbability reaches .85.
+        for (const band of ['easier', 'standard', 'harder'] as const) {
+          for (let i = 0; i < 100; i++) {
+            const seed = `tag:${skillId}:${band}:${i}`
+            for (const t of generateExercise(ctx({ primarySkillId: skillId, seed, tier, band })).variationTags) {
+              produced.add(t)
+            }
+          }
+        }
+      }
+      const missing = required.filter((t) => !produced.has(t))
+      expect(missing, `${skillId} emits ${[...produced].join(', ')}`).toEqual(KNOWN_TAG_GAPS[skillId] ?? [])
+    }
+  })
+
+  it('clock 12-wrap tag marks the items that actually wrap', () => {
+    // The tag used to key off hour12, but minutes 25..40 shift the hour back
+    // one step, so "half 12" (11:30) was tagged 12-wrap and the real wrap
+    // "half 1" (00:30) was tagged standard.
+    const wrapped = new Map<string, boolean>()
+    for (const skill of CLOCK_SKILLS) {
+      for (let i = 0; i < 400; i++) {
+        const ex = generateExercise(ctx({ primarySkillId: skill, seed: `wrap:${skill}:${i}`, tier: 'S2' }))
+        const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+        wrapped.set(phrase, ex.variationTags.includes('12-wrap'))
+      }
+    }
+    expect(wrapped.get('half 1')).toBe(true)
+    expect(wrapped.get('half 12')).toBe(true)
+    expect(wrapped.get('half 11')).toBe(false)
+    expect(wrapped.get('5 over 12')).toBe(true)
+    expect(wrapped.get('10 voor 1')).toBe(true)
+    expect(wrapped.get('kwart voor 12')).toBe(true)
+    expect(wrapped.get('5 over 11')).toBe(false)
+    expect(wrapped.get('10 voor half 2')).toBe(false)
+    // Exhaustive cross-check: the wrap is exactly "the phrase says 12", plus
+    // the forms that name the hour ahead when that hour is 1 (i.e. 12 has just
+    // passed). "5 over 1" names the hour behind, so it is not a wrap.
+    for (const [phrase, isWrap] of wrapped) {
+      const numerals = phrase.match(/\d{1,2}/g)!
+      const named = Number(numerals[numerals.length - 1])
+      const namesHourAhead = /\b(voor|half)\b/.test(phrase)
+      expect(named === 12 || (named === 1 && namesHourAhead), `${phrase} tagged ${isWrap}`).toBe(isWrap)
+    }
+  })
+
+  it('attributes the half-direction error at every offset, not just 10 voor half', () => {
+    // Mirroring the offset across the half-hour anchor is the same error for
+    // "5 voor half 9" (08:25 → 08:35) as for "10 voor half 9" (08:20 → 08:40);
+    // only the latter used to be attributed.
+    const seen = new Map<number, string>()
+    for (let i = 0; i < 400; i++) {
+      const ex = generateExercise(
+        ctx({ primarySkillId: 'TIME.READ.DutchPhrasingHalfHourOffset', seed: `mir${i}`, tier: 'S2' }),
+      )
+      const minuteOfDay = Number(ex.fingerprint.split(':')[1])
+      const minutes = minuteOfDay % 60
+      const mirrored = (((minuteOfDay + 2 * (30 - minutes)) % 720) + 720) % 720
+      const v = ex.steps[0]!.validate(`${Math.floor(mirrored / 60)}:${String(mirrored % 60).padStart(2, '0')}`)
+      expect(v.isCorrect, ex.steps[0]!.promptNl).toBe(false)
+      expect(v.misconceptionId, ex.steps[0]!.promptNl).toBe('MC.TIME.HalfDirection')
+      seen.set(minutes, v.feedbackNl)
+    }
+    expect([...seen.keys()].sort((a, b) => a - b)).toEqual([20, 25, 35, 40])
+    expect(seen.get(25)).toContain('5 minuten')
+    expect(seen.get(35)).toContain('"Over"')
+    expect(seen.get(40)).toContain('10 minuten')
   })
 
   it('validates its own answers (correct and misconception signatures)', () => {

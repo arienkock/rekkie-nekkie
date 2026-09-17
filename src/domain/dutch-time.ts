@@ -58,6 +58,70 @@ export function toDutchVerbalTime(t: ClockTime): string {
   }
 }
 
+/**
+ * The hour numeral the phrase actually says: "5 over 2" names 2 (the hour just
+ * passed), "half 3" and "10 voor 3" name 3 (the hour still coming).
+ */
+export function dutchNamedHour12(t: ClockTime): number {
+  return t.minutes >= 20 ? nextHour12(t.hours) : dutch12(t.hours)
+}
+
+/**
+ * Does this item exercise the 12 o'clock wrap? True when the numeral 12 is
+ * involved on either side of the boundary — "5 over 12" (00:05), "half 1"
+ * (00:30), "kwart voor 12" (11:45) — which is the critical variation the KC
+ * graph requires before Level 3 on the Dutch phrasing skills.
+ */
+export function isTwelveWrap(t: ClockTime): boolean {
+  return dutch12(t.hours) === 12 || dutchNamedHour12(t) === 12
+}
+
+/**
+ * The structural family a Dutch clock phrase belongs to. Coaching text (rules,
+ * hints, feedback) differs per family: "5 over 2" needs the over-the-hour rule,
+ * not the half-hour rule, so callers key their copy on this instead of assuming
+ * every clock item is a half-hour item.
+ */
+export type DutchPhraseShape =
+  | 'whole'
+  | 'over-hour'
+  | 'quarter-over'
+  | 'to-half'
+  | 'half'
+  | 'past-half'
+  | 'quarter-to'
+  | 'to-hour'
+
+export function dutchPhraseShape(minutes: number): DutchPhraseShape {
+  switch (minutes) {
+    case 0: return 'whole'
+    case 5:
+    case 10: return 'over-hour'
+    case 15: return 'quarter-over'
+    case 20:
+    case 25: return 'to-half'
+    case 30: return 'half'
+    case 35:
+    case 40: return 'past-half'
+    case 45: return 'quarter-to'
+    case 50:
+    case 55: return 'to-hour'
+    default:
+      throw new Error(`Dutch verbal time only supports 5-minute resolution; got ${minutes}`)
+  }
+}
+
+/**
+ * Digital display on the 12-hour numeral, e.g. "half 1" (minuteOfDay 30) is
+ * "12:30", not "00:30". The Dutch phrasing skills sit BEFORE
+ * TIME.READ.Digital24 in the graph and their steps declare `use24Hour: false`,
+ * so an answer shown back in midnight notation would teach a numeral the child
+ * has not met and is not being asked to write.
+ */
+export function formatDigital12(t: ClockTime): string {
+  return `${String(dutch12(t.hours)).padStart(2, '0')}:${String(t.minutes).padStart(2, '0')}`
+}
+
 /** Digital 24-hour display, e.g. "08:20". */
 export function formatDigital(t: ClockTime): string {
   const hh = String(t.hours).padStart(2, '0')

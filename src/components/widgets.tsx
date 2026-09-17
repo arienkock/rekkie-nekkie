@@ -215,6 +215,15 @@ function RulerWidget({ startMm, endMm }: { startMm: number; endMm: number }) {
 
 // ---- 5. Analog clock ----
 
+/**
+ * Dutch spoken label for the face. `hours` is a 0..23 clock hour, so it needs
+ * the 12-hour numeral: 00:30 is "12 uur en 30 minuten", never "0 uur".
+ */
+function clockLabel(hours: number, minutes: number): string {
+  const h12 = hours % 12 === 0 ? 12 : hours % 12
+  return minutes === 0 ? `Klok: ${h12} uur` : `Klok: ${h12} uur en ${minutes} minuten`
+}
+
 function ClockWidget({ hours, minutes }: { hours: number; minutes: number }) {
   const SIZE = 200
   const C = SIZE / 2
@@ -230,7 +239,7 @@ function ClockWidget({ hours, minutes }: { hours: number; minutes: number }) {
   const minuteEnd = hand(minuteAngle, R * 0.78)
 
   return (
-    <svg className="widget-svg" viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`Klok: ${hours} uur en ${minutes} minuten`}>
+    <svg className="widget-svg" viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={clockLabel(hours, minutes)}>
       <circle cx={C} cy={C} r={R + 8} fill="var(--widget-fill)" stroke="var(--border-strong)" strokeWidth={2} />
       {Array.from({ length: 12 }, (_, i) => {
         const a = (i * 30 * Math.PI) / 180
