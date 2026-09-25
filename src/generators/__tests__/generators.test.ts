@@ -268,19 +268,11 @@ describe('generators', () => {
    * rather than a tag rename, so they are pinned here: closing one, or
    * opening a new one, fails this test rather than passing silently.
    *   - cropped-ruler: needs a ruler widget that does not start at 0 mm.
-   *   - inverse-verification: NOT a money-change detail. gateLevel3 in
-   *     engine/mastery.ts requires inverseSuccessCount >= 1, and the only
-   *     writer of that counter is `isInverse`, set from this one tag in
-   *     store/learner-store.ts. No generator emits it, so Level 3 is
-   *     unreachable for EVERY skill and the tag work above cannot pay off
-   *     until some archetype produces a real inverse-verification step
-   *     (money-change's own header says it should: price + change = paid).
    *   - both-directions: the conversion generator emits up-scale/down-scale
    *     per item; nothing emits a combined tag.
    */
   const KNOWN_TAG_GAPS: Record<string, string[]> = {
     'MEAS.RULER.Offset': ['cropped-ruler'],
-    'MONEY.CHANGE.Complement': ['inverse-verification'],
     'MEAS.LENGTH.Convert': ['both-directions'],
     'MEAS.MASS.Convert': ['both-directions'],
     'MEAS.CAPACITY.Convert': ['both-directions'],

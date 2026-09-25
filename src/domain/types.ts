@@ -328,4 +328,4 @@ export interface LearnerSnapshot {
 
 export const SCHEMA_VERSION = 1
 export const CATALOG_VERSION = 'groep56-2024-09'
-export const MODEL_VERSION = 'bkt-memory-v1'
+export const MODEL_VERSION = 'bkt-memory-v2'

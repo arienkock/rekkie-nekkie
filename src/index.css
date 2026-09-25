@@ -1076,6 +1076,48 @@ h3 {
   font-weight: 600;
 }
 
+.kc-mastery-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  align-items: center;
+  max-width: 420px;
+  margin: 4px 0 5px;
+}
+
+.kc-mastery-progress-label,
+.kc-mastery-progress-count {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.kc-mastery-progress-label {
+  color: var(--text-soft);
+}
+
+.kc-mastery-progress-count {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.kc-mastery-progress-track {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 4px;
+  height: 6px;
+}
+
+.kc-mastery-progress-step {
+  border-radius: 999px;
+  background: var(--border);
+  transition: background-color 160ms ease;
+}
+
+.kc-mastery-progress-step.filled {
+  background: var(--accent);
+}
+
 .kc-can {
   color: var(--text-soft);
   font-size: 14px;

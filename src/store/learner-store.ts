@@ -146,6 +146,10 @@ export class LearnerStore {
   /** Fill in fields added after a snapshot was first persisted. */
   private normalizeSnapshot(): void {
     this.snapshot.totalExercisesCompleted ??= 0
+    // Carry restored profiles forward to the active evidence rules. This is a
+    // metadata update only: existing observations, counters, and star levels
+    // remain intact.
+    this.snapshot.modelVersion = MODEL_VERSION
     for (const state of Object.values(this.snapshot.skills)) {
       state.memory.delayedSuccessGapsDays ??= []
     }

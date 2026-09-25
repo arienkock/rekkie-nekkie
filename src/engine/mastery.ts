@@ -87,7 +87,8 @@ function gateLevel2(state: LearnerSkillState): GateResult {
 /**
  * Level 3 — Mastered & Fluent.
  * p ≥ .93; ≥9 of latest 10 correct across ≥3 visits; ≥2 unassisted transfer
- * successes incl. one inverse; critical variation covered.
+ * successes; critical variation (including inverse verification where declared)
+ * is enforced by the KC-specific variation gate in evaluatePromotion.
  */
 function gateLevel3(state: LearnerSkillState): GateResult {
   const missing: string[] = []
@@ -96,7 +97,6 @@ function gateLevel3(state: LearnerSkillState): GateResult {
   if (window.length < 10 || latestCorrectCount(window, 10) < 9) missing.push('9-of-10')
   if (state.distinctVisitIds.length < 3) missing.push('visits-3')
   if (state.transferSuccessCount < 2) missing.push('transfer')
-  if (state.inverseSuccessCount < 1) missing.push('inverse')
   return { level: 3, met: missing.length === 0, missing }
 }
 

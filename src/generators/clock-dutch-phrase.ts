@@ -26,6 +26,17 @@ const MINUTES_BY_SKILL: Record<string, number[]> = {
   'TIME.READ.DutchPhrasingHalfHourOffset': [20, 25, 35, 40],
 }
 
+/** First exposure bands keep the phrase family small while preserving the KC. */
+const EASIER_MINUTES_BY_SKILL: Record<string, number[]> = {
+  'TIME.READ.MinuteFive': [0, 5, 10],
+  'TIME.READ.DutchHourQuarter': [0, 15],
+  'TIME.READ.DutchHourOffset': [5, 10],
+  // The half-hour reference itself has no simpler minute offset; easier items
+  // still avoid the 12-wrap, as do the other phrase families.
+  'TIME.READ.DutchHalfNextHour': [30],
+  'TIME.READ.DutchPhrasingHalfHourOffset': [25, 35],
+}
+
 /**
  * Coaching copy for one phrase family. Every clock item used to carry the
  * half-hour ladder, so "5 over 2" was taught with "half 9 is 08:30" — text
@@ -178,11 +189,18 @@ function coachingFor(
 export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExercise {
   const rng = new SeededRng(ctx.seed)
   const skill = ctx.primarySkillId
-  const minutesOptions = MINUTES_BY_SKILL[skill]
+  const minutesOptions =
+    (ctx.band === 'easier' ? EASIER_MINUTES_BY_SKILL[skill] : undefined) ?? MINUTES_BY_SKILL[skill]
   if (!minutesOptions) throw new Error(`clock-dutch-phrase: unsupported skill ${skill}`)
 
   const minutes = rng.pick(minutesOptions)
-  const hour12 = rng.int(1, 12)
+  // Do not introduce the 12-wrap in the easier band. Half-hour phrases shift
+  // the named hour back one, so avoid hour 1 as well as hour 12 for those.
+  const shiftedHalfPhrase = minutes >= 25 && minutes <= 40
+  const hour12 = rng.int(
+    ctx.band === 'easier' && shiftedHalfPhrase ? 2 : 1,
+    ctx.band === 'easier' ? 11 : 12,
+  )
   // minuteOfDay in the morning half-day; the 12-wrap is critical variation.
   let minuteOfDay = (hour12 % 12) * 60 + minutes
   // NOTE: minutes 20 also names the NEXT hour but is not shifted, so hour12 is

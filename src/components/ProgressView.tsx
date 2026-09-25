@@ -1,14 +1,15 @@
 /**
  * ProgressView: the child-facing dashboard (docs/adaptive-learning-design.md
  * §4.4). Four theme islands; supported KCs expand per theme. Shows the highest
- * demonstrated achievement as stars plus a small freshness ring — a due skill
- * never becomes an empty star. No BKT percentages on the child view.
+ * demonstrated achievement as stars, next-gate evidence progress, and a small
+ * freshness signal — a due skill never becomes an empty star. No BKT percentages
+ * on the child view.
  */
 import { useMemo, useState } from 'react'
 import type { LearnerStore } from '../store/learner-store'
 import { SUPPORTED_SKILLS } from '../generators'
 import { KNOWLEDGE_GRAPH, THEME_META } from '../domain/knowledge-graph'
-import { childStatusText } from '../domain/child-status'
+import { childStatusText, masteryProgress } from '../domain/child-status'
 import type { SkillId, ThemeId } from '../domain/types'
 
 export function ProgressView({ store }: { store: LearnerStore }) {
@@ -38,7 +39,10 @@ export function ProgressView({ store }: { store: LearnerStore }) {
   return (
     <div className="progress-view">
       <h2>Voortgang</h2>
-      <p className="muted">Eiland per thema. Tik op een eiland om de vaardigheden te zien.</p>
+      <p className="muted">
+        Eiland per thema. Tik op een eiland om de vaardigheden te zien. Balkjes tonen één oefendoel voor de volgende ster;
+        een ster vraagt ook om goede antwoorden, variatie en soms oefenen op andere dagen.
+      </p>
       <div className="islands">
         {(Object.keys(THEME_META) as ThemeId[]).map((theme) => {
           const { primary, bridges } = byTheme[theme]
@@ -102,6 +106,7 @@ function SkillRow({
   // and recently-practiced ('refresh') is never shown as due.
   const status = childStatusText(state)
   const isDue = state.memory.freshness === 'due'
+  const progress = masteryProgress(state)
 
   return (
     <li className={`kc-row ${isDue ? 'due' : ''}`}>
@@ -116,6 +121,29 @@ function SkillRow({
         </span>
         {status && <span className="kc-fresh">{status}</span>}
       </div>
+      {progress && (
+        <div
+          className="kc-mastery-progress"
+          role="progressbar"
+          aria-label={progress.label}
+          aria-valuemin={0}
+          aria-valuemax={progress.target}
+          aria-valuenow={progress.value}
+          aria-valuetext={progress.valueText}
+        >
+          <span className="kc-mastery-progress-label" aria-hidden="true">{progress.label}</span>
+          <span className="kc-mastery-progress-count" aria-hidden="true">{progress.valueText}</span>
+          <span
+            className="kc-mastery-progress-track"
+            style={{ gridTemplateColumns: `repeat(${progress.target}, minmax(0, 1fr))` }}
+            aria-hidden="true"
+          >
+            {Array.from({ length: progress.target }, (_, i) => (
+              <span key={i} className={`kc-mastery-progress-step ${i < progress.value ? 'filled' : ''}`} />
+            ))}
+          </span>
+        </div>
+      )}
       <div className="kc-can">{can}</div>
     </li>
   )

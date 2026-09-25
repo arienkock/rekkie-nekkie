@@ -54,7 +54,9 @@ export function generateMoneyChange(ctx: GeneratorContext): GeneratedExercise {
     supportingSkillIds: ['MONEY.CALC.Subtract'],
     difficultyBand: ctx.band,
     representation: 'story',
-    variationTags: ['change'],
+    // This is a missing-part task (price + change = paid), an inverse relation
+    // required by this KC's Level 3 variation gate.
+    variationTags: ['change', 'inverse-verification'],
     purpose: ctx.purpose,
     explanationNl: [
       `Tel vanaf de prijs door naar het betaalde bedrag: ${formatMoney(price)} → … → ${formatMoney(paid)}, samen ${formatMoney(change)} wisselgeld.`,
