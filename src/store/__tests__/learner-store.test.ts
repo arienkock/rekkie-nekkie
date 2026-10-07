@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryDriver } from '../../storage/persistence'
+import * as rngModule from '../../engine/rng'
 import { LearnerStore, SESSION_TARGET_ITEMS } from '../learner-store'
 import type { ExerciseSessionState, GeneratedExercise, GeneratedStep } from '../../domain/types'
 
@@ -339,3 +340,73 @@ function wrongParseableAnswer(step: GeneratedStep): string | number | Record<str
       return -999
   }
 }
+
+describe('separate multiplication practice', () => {
+  it('serves only the selected tables, persists their evidence, and keeps them out of curriculum sessions', () => {
+    const driver = new MemoryDriver()
+    const store = new LearnerStore('tables', driver)
+    let session = store.startSession('tables', [6, 7, 8, 9])!
+    for (let i = 0; i < SESSION_TARGET_ITEMS; i++) {
+      expect(['MUL.FACT.T6', 'MUL.FACT.T7', 'MUL.FACT.T8', 'MUL.FACT.T9']).toContain(session.exercise.primarySkillId)
+      solveAll(store, session)
+      store.completeExercise()
+      session = store.nextExercise()!
+    }
+    expect(store.currentSession).toBeNull()
+    const restored = new LearnerStore('tables', driver)
+    expect(restored.snapshot.observations.length).toBe(SESSION_TARGET_ITEMS)
+    expect(restored.snapshot.observations.every((o) => o.skillId.startsWith('MUL.FACT.T'))).toBe(true)
+    session = restored.startSession()!
+    expect(session.exercise.primarySkillId.startsWith('MUL.FACT.T')).toBe(false)
+  })
+
+  it('supports a single table and rejects an empty or invalid selection', () => {
+    const store = new LearnerStore('one-table', new MemoryDriver())
+    expect(store.startSession('tables', [])).toBeNull()
+    expect(store.startSession('tables', [0, 11])).toBeNull()
+    expect(store.startSession('tables', [9, 9, 11])!.exercise.primarySkillId).toBe('MUL.FACT.T9')
+  })
+
+  it('does not count requested visual help as independent recall', () => {
+    const store = new LearnerStore('help', new MemoryDriver())
+    const state = store.skillState('MUL.FACT.T7')
+    state.exposureCount = 5
+    state.masteryProbability = 0.85
+    state.scaffolding.currentTier = 'S2'
+    store.snapshot.skills[state.skillId] = state
+    const session = store.startSession('tables', [7])!
+    expect(session.currentScaffold).toBe('S2')
+    store.requestHint()
+    solveAll(store, session)
+    store.completeExercise()
+    const observation = store.snapshot.observations.at(-1)!
+    expect(observation.eligibility.independent).toBe(false)
+    expect(observation.eligibility.weight).toBeLessThan(1)
+  })
+})
+
+
+it('can advance from a fresh table to independent competency and transfer across visits', () => {
+  vi.useFakeTimers()
+  let seed = 0
+  const seeds = vi.spyOn(rngModule, 'randomSeed').mockImplementation(() => `progression:${seed++}`)
+  try {
+    const driver = new MemoryDriver()
+    let highest = 0
+    for (let day = 0; day < 40 && highest < 3; day++) {
+      vi.setSystemTime(new Date(Date.UTC(2026, 0, day + 1, 10)))
+      const store = new LearnerStore('progression', driver)
+      store.startSession('tables', [7])
+      while (store.currentSession) {
+        solveAll(store, store.currentSession)
+        store.completeExercise()
+        highest = Math.max(highest, store.skillState('MUL.FACT.T7').highestDemonstratedLevel)
+        store.nextExercise()
+      }
+    }
+    expect(highest).toBeGreaterThanOrEqual(3)
+  } finally {
+    seeds.mockRestore()
+    vi.useRealTimers()
+  }
+})

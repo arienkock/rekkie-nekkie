@@ -9,6 +9,7 @@ import { generateExercise, SUPPORTED_SKILLS } from '../../generators'
 import type { GeneratedExercise, ScaffoldTier, WidgetSpec } from '../../domain/types'
 
 const KNOWN_WIDGETS: WidgetSpec['type'][] = [
+  'multiplication-array',
   'dhte-grid',
   'number-line',
   'column-grid',
@@ -21,6 +22,7 @@ const KNOWN_WIDGETS: WidgetSpec['type'][] = [
 const KNOWN_ANSWER_KINDS = ['integer', 'text', 'time', 'quotient-remainder', 'digits', 'money']
 
 const REQUIRED_WIDGET_PROPS: Record<WidgetSpec['type'], string[]> = {
+  'multiplication-array': ['rows', 'columns', 'split'],
   'dhte-grid': ['number', 'columns'],
   'number-line': ['range', 'jumps'],
   'column-grid': ['operation', 'operands'],

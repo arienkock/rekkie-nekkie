@@ -8,6 +8,8 @@ import { useLearnerStore } from './hooks/use-learner-store'
 import { useViewportFit } from './hooks/use-viewport-fit'
 import { ExerciseView } from './components/ExerciseView'
 import { ProgressView } from './components/ProgressView'
+import { DEFAULT_TABLES, TABLES } from './generators/multiplication-facts'
+import type { PracticeMode } from './store/learner-store'
 import type { LearnerStore } from './store/learner-store'
 
 type View = 'home' | 'exercise' | 'progress' | 'settings'
@@ -15,6 +17,9 @@ type View = 'home' | 'exercise' | 'progress' | 'settings'
 export default function App() {
   const store = useLearnerStore()
   const [view, setView] = useState<View>('home')
+  const preferredTables = store.snapshot.preferences.selectedTables
+  const [tables, setTables] = useState<number[]>(preferredTables ?? DEFAULT_TABLES)
+  useEffect(() => setTables(preferredTables ?? DEFAULT_TABLES), [preferredTables])
   // Keep the visible layout in sync with browser chrome and the OSK.
   useViewportFit()
 
@@ -27,19 +32,17 @@ export default function App() {
     document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false'
   }, [reducedMotion])
 
-  const start = () => {
-    store.startSession()
+  const start = (mode: PracticeMode = store.practiceMode) => {
+    if (store.currentSession && !window.confirm('Je sessie is nog niet klaar. Wil je een nieuwe sessie beginnen?')) return
+    const selection = mode === 'tables' && tables.length === 0 ? store.selectedTables : tables
+    store.startSession(mode, selection)
     setView('exercise')
   }
 
-  const restart = () => {
-    if (
-      store.currentSession &&
-      !window.confirm('Je sessie is nog niet klaar. Weet je zeker dat je opnieuw wilt beginnen?')
-    ) {
-      return
-    }
-    start()
+  const toggleTable = (table: number) => {
+    const selected = tables.includes(table) ? tables.filter((n) => n !== table) : [...tables, table].sort((a, b) => a - b)
+    setTables(selected)
+    store.savePreferences({ selectedTables: selected })
   }
 
   const nickname = store.snapshot.preferences.nickname ?? ''
@@ -88,23 +91,47 @@ export default function App() {
                 {nickname ? `Hoi ${nickname}!` : 'Hoi!'}{' '}
                 <span className="muted">Wat gaan we vandaag oefenen?</span>
               </p>
-              {store.currentSession ? (
-                <div className="btn-row">
-                  <button type="button" className="btn primary big" onClick={() => setView('exercise')}>
+              {store.currentSession && (
+                <div className="resume-practice">
+                  <p>Je bent bezig met {store.practiceMode === 'tables' ? `de tafels van ${store.selectedTables.join(', ')}` : 'rekenen'}.</p>
+                  <button type="button" className="btn primary" onClick={() => setView('exercise')}>
                     ▶ Ga verder met je sessie
                   </button>
-                  <button type="button" className="btn ghost" onClick={restart}>
-                    Opnieuw beginnen
-                  </button>
                 </div>
-              ) : (
-                <button type="button" className="btn primary big" onClick={start}>
-                  Start oefensessie
-                </button>
               )}
-              <p className="muted">
-                Iets vertrouwds, iets nieuws en een puzzel — ongeveer 5 minuten.
-              </p>
+              <div className="practice-choices">
+                <section className="practice-choice">
+                  <span className="practice-icon" aria-hidden>🧮</span>
+                  <h2>Rekenen</h2>
+                  <p>Optellen, meten, delen, tijd en geld. Iets vertrouwds, iets nieuws en een puzzel.</p>
+                  <button type="button" className="btn primary big" onClick={() => start('curriculum')}>
+                    {store.currentSession ? 'Nieuwe rekensessie' : 'Oefen rekenen'}
+                  </button>
+                  <p className="muted">8 opgaven · ongeveer 5 minuten</p>
+                </section>
+                <section className="practice-choice">
+                  <span className="practice-icon" aria-hidden>✖️</span>
+                  <h2>Tafels oefenen</h2>
+                  <p>Kies je tafels. Oefen met groepjes en rijen, en steeds meer uit je hoofd.</p>
+                  <fieldset className="table-picker">
+                    <legend>{store.currentSession ? 'Tafels voor een nieuwe sessie' : 'Welke tafels wil je oefenen?'}</legend>
+                    <div className="table-options">
+                      {TABLES.map((table) => (
+                        <label key={table} className={`table-option ${tables.includes(table) ? 'selected' : ''}`}>
+                          <input type="checkbox" checked={tables.includes(table)} onChange={() => toggleTable(table)} />
+                          <span>{table}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  {store.currentSession && <p className="muted">Je keuze geldt voor een nieuwe sessie. Ga verder om je huidige sessie af te maken.</p>}
+                  {tables.length === 0 && <p className="muted">Kies minstens één tafel.</p>}
+                  <button type="button" className="btn primary big" disabled={tables.length === 0} onClick={() => start('tables')}>
+                    {store.currentSession ? 'Nieuwe tafelsessie' : 'Oefen tafels'}
+                  </button>
+                  <p className="muted">8 opgaven · op jouw niveau</p>
+                </section>
+              </div>
             </div>
             <HomeStats store={store} />
           </section>
@@ -114,7 +141,7 @@ export default function App() {
           (store.currentSession ? (
             <ExerciseView key={store.currentSession.id} store={store} />
           ) : (
-            <SessionSummary store={store} onStart={start} onProgress={() => setView('progress')} onHome={() => setView('home')} />
+            <SessionSummary store={store} onStart={() => start()} onProgress={() => setView('progress')} onHome={() => setView('home')} />
           ))}
 
         {view === 'progress' && <ProgressView store={store} />}

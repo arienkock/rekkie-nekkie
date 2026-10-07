@@ -8,6 +8,7 @@
 import { KNOWLEDGE_GRAPH, getSkill } from '../domain/knowledge-graph'
 import type {
   ExerciseSessionState,
+  ExerciseWorkState,
   GeneratedExercise,
   LearnerSnapshot,
   LearnerSkillState,
@@ -27,7 +28,7 @@ import { deriveFreshness } from '../engine/memory'
 import { randomSeed, SeededRng } from '../engine/rng'
 import { chooseStartTier, decideFade, decideReSupport, tierIndex } from '../engine/scaffolding'
 import { selectNextSkill } from '../engine/selector'
-import { generateExercise, SUPPORTED_SKILLS } from '../generators'
+import { generateExercise, CURRICULUM_SKILLS } from '../generators'
 import {
   canonicalStringify,
   checksumOf,
@@ -37,6 +38,9 @@ import {
   type StorageDriver,
 } from '../storage/persistence'
 
+import { DEFAULT_TABLES, TABLES } from '../generators/multiplication-facts'
+
+export type PracticeMode = 'curriculum' | 'tables'
 export const SESSION_TARGET_ITEMS = 8
 
 /** One row of per-item session history for the end-of-session summary. */
@@ -80,6 +84,8 @@ export class LearnerStore {
 
   /** In-progress session state; null between sessions. */
   currentSession: ExerciseSessionState | null = null
+  practiceMode: PracticeMode = 'curriculum'
+  selectedTables: number[] = [...DEFAULT_TABLES]
   sessionItemPurposes: string[] = []
   sessionItemsDone = 0
   sessionResults: SessionResult[] = []
@@ -146,6 +152,9 @@ export class LearnerStore {
   /** Fill in fields added after a snapshot was first persisted. */
   private normalizeSnapshot(): void {
     this.snapshot.totalExercisesCompleted ??= 0
+    const selected = this.snapshot.preferences.selectedTables
+    this.snapshot.preferences.selectedTables = Array.isArray(selected)
+      ? [...new Set(selected)].filter((n) => TABLES.includes(n)) : [...DEFAULT_TABLES]
     // Carry restored profiles forward to the active evidence rules. This is a
     // metadata update only: existing observations, counters, and star levels
     // remain intact.
@@ -198,7 +207,11 @@ export class LearnerStore {
 
   // ---- Session flow ----
 
-  startSession(): ExerciseSessionState | null {
+  startSession(mode: PracticeMode = 'curriculum', tables: number[] = DEFAULT_TABLES): ExerciseSessionState | null {
+    const validTables = [...new Set(tables)].filter((n) => TABLES.includes(n))
+    if (mode === 'tables' && validTables.length === 0) return null
+    this.practiceMode = mode
+    this.selectedTables = validTables
     this.sessionItemPurposes = []
     this.sessionItemsDone = 0
     this.sessionResults = []
@@ -215,7 +228,8 @@ export class LearnerStore {
     }
     const selection = selectNextSkill(
       {
-        skills: { supported: SUPPORTED_SKILLS, states: this.snapshot.skills },
+        skills: { supported: this.practiceMode === 'tables'
+          ? this.selectedTables.map((n) => `MUL.FACT.T${n}`) : CURRICULUM_SKILLS, states: this.snapshot.skills },
         recentPurposes: this.sessionItemPurposes as never[],
         recentSkillIds: this.sessionRecentSkills,
         now: new Date(),
@@ -295,6 +309,11 @@ export class LearnerStore {
       id: `sess-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`,
       visitId: this.visitId,
       exercise,
+      work: {
+        stepIndex: 0, feedback: null, hint: null, noteOpen: false,
+        answers: exercise.steps.map(() => ''),
+        solved: exercise.steps.map(() => false),
+      },
       currentScaffold: tier,
       highestAssistanceUsed: tier,
       hintLevel: 0,
@@ -317,6 +336,13 @@ export class LearnerStore {
     this.sessionRecentSkills = [...this.sessionRecentSkills, exercise.primarySkillId].slice(-3)
     this.notify()
     return this.currentSession
+  }
+
+  /** Update presentation state without committing or changing learning evidence. */
+  setExerciseWork<K extends keyof ExerciseWorkState>(key: K, value: ExerciseWorkState[K]): void {
+    if (!this.currentSession) return
+    this.currentSession.work[key] = value
+    this.notify()
   }
 
   /** Validate a learner answer for the given step (no evidence yet).

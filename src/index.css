@@ -1619,3 +1619,40 @@ main {
 .step.solved .step-num {
   animation: feedback-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* Two independent practice routes share the same learning loop. */
+.practice-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; margin-top: 1.5rem; text-align: left; }
+.practice-choice { padding: 1.5rem; border: 1px solid #ded9ed; border-radius: 1.25rem; background: white; }
+.practice-choice h2 { margin: .5rem 0; }
+.practice-choice p { line-height: 1.5; }
+.practice-icon { font-size: 2rem; }
+.resume-practice { padding: 1rem; background: #f0edf9; border-radius: 1rem; }
+.table-picker { padding: 0; border: 0; margin: 1rem 0; }
+.table-picker legend { margin-bottom: .6rem; font-weight: 600; }
+.table-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
+.table-option { display: flex; align-items: center; justify-content: center; gap: .3rem; padding: .65rem .25rem; border: 2px solid #ded9ed; border-radius: .7rem; cursor: pointer; }
+.table-option.selected { background: #eee9fc; border-color: #7055b5; }
+.table-option:focus-within { outline: 3px solid #b45309; outline-offset: 2px; }
+.table-option input { accent-color: #7055b5; }
+.multiplication-array { margin: 1rem auto; text-align: center; }
+.multiplication-array svg { display: block; width: 100%; max-width: 320px; max-height: 320px; margin: auto; }
+.multiplication-array figcaption p { margin: .5rem 0; }
+@media (max-width: 650px) { .practice-choices { grid-template-columns: 1fr; } }
+/* The route picker needs the full home width, including on landscape tablets. */
+.home { display: block; }
+.home .hero { align-items: stretch; }
+.home .stats-row { margin-top: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 650px) {
+  .practice-choice { padding: 1rem; }
+  .home .stats-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+}
+
+.multiplication-strategy {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--accent-soft);
+  text-align: center;
+}
+.multiplication-strategy p { font-size: 1.3rem; font-weight: 700; line-height: 1.5; }

@@ -13,7 +13,10 @@ import { generateClockDutchPhrase } from './clock-dutch-phrase'
 import { generateMoneyChange } from './money-change'
 import { generateUnitConversion } from './unit-conversion'
 
+import { generateMultiplicationFacts, TABLES, isTableSkill } from './multiplication-facts'
+
 const REGISTRY: Record<string, Generator> = {
+  ...Object.fromEntries(TABLES.map((n) => [`MUL.FACT.T${n}`, generateMultiplicationFacts])),
   'PV.DHTE.Decompose': generateDhteDecompose,
   'ADD.JUMP.NoBridge': generateNumberLineJumps,
   'ADD.JUMP.TenBridge': generateNumberLineJumps,
@@ -38,6 +41,8 @@ const REGISTRY: Record<string, Generator> = {
 }
 
 export const SUPPORTED_SKILLS: SkillId[] = Object.keys(REGISTRY)
+
+export const CURRICULUM_SKILLS = SUPPORTED_SKILLS.filter((id) => !isTableSkill(id))
 
 export function hasGenerator(skillId: SkillId): boolean {
   return skillId in REGISTRY

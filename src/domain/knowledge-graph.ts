@@ -222,7 +222,7 @@ export const KNOWLEDGE_GRAPH: KnowledgeGraphNode[] = [
       `Ik ken de tafel van ${n}, ook als een factor ontbreekt.`,
       `Retrieves/derives the ${n}s facts, including missing-factor questions.`,
       ['MUL.GROUP.Array'],
-      [`T${n}:all-multipliers`, 'missing-factor']),
+      [...Array.from({ length: 10 }, (_, i) => `T${n}:m${i + 1}`), 'missing-factor']),
   ),
   node('MUL.SCALE.OneFactor', [MD], 'mul-scale', 'Keer 10 en keer 100 bij vermenigvuldigen',
     'Ik zie dat 4 × 3, 4 × 30 en 4 × 300 bij elkaar horen.',

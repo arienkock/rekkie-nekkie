@@ -15,14 +15,15 @@
  *  - a solved step says which step is next, because the form underneath it
  *    silently swapped to that step.
  */
-import { useEffect, useRef, useState } from 'react'
-import type { AnswerType, GeneratedExercise, GeneratedStep, StepValidation } from '../domain/types'
+import { useEffect, useRef } from 'react'
+import type { AnswerType, ExerciseAnswer, ExerciseFeedback, ExerciseSessionState, ExerciseWorkState, GeneratedExercise, GeneratedStep, StepValidation } from '../domain/types'
 import type { LearnerStore } from '../store/learner-store'
 import { SESSION_TARGET_ITEMS } from '../store/learner-store'
 import { getSkill } from '../domain/knowledge-graph'
 import { ExerciseWidget } from './widgets'
 
-type Answer = string | number | Record<string, string | number>
+type Answer = ExerciseAnswer
+type FeedbackState = ExerciseFeedback
 
 /** How the last check landed; drives the answer field's own styling. */
 type Outcome = 'correct' | 'incorrect' | 'invalid'
@@ -37,20 +38,6 @@ const TIER_LABELS: Record<string, string> = {
 /** Hints 1–3 come from the ladder; the 4th press reveals the solution. */
 const HINT_LADDER_LENGTH = 3
 
-interface FeedbackState {
-  validation: StepValidation
-  /** Step the message is about; it retires when the learner edits elsewhere. */
-  stepId: string
-  /** Bumped on every check so the banner re-mounts and replays its entrance. */
-  seq: number
-  /** Parseable attempts on this step so far (unreadable input does not count). */
-  attempt: number
-  /** Step the form jumped to after a correct answer; null when none is left. */
-  advancedTo: number | null
-  /** Set once the learner edits again: the message describes an older answer. */
-  stale: boolean
-}
-
 function outcomeOf(validation: StepValidation): Outcome {
   if (validation.isCorrect) return 'correct'
   return validation.invalidFormat ? 'invalid' : 'incorrect'
@@ -59,14 +46,16 @@ function outcomeOf(validation: StepValidation): Outcome {
 export function ExerciseView({ store }: { store: LearnerStore }) {
   const session = store.currentSession!
   const exercise = session.exercise
-  const [stepIndex, setStepIndex] = useState(0)
-  const [feedback, setFeedback] = useState<FeedbackState | null>(null)
-  const [hint, setHint] = useState<string | null>(null)
-  const [noteOpen, setNoteOpen] = useState(false)
-  const [answers, setAnswers] = useState<Answer[]>(() => exercise.steps.map(() => ''))
-  const [solved, setSolved] = useState<boolean[]>(() => exercise.steps.map(() => false))
-  // NOTE: the app shell mounts <ExerciseView key={session.id}> so a new
-  // exercise naturally starts with fresh local flow state.
+  const { stepIndex, feedback, hint, noteOpen, answers, solved } = session.work
+  // Session state outlives this component when the child visits another tab.
+  const updateWork = <K extends keyof ExerciseWorkState>(key: K, update: ExerciseWorkState[K] | ((previous: ExerciseWorkState[K]) => ExerciseWorkState[K])) => {
+    const value = typeof update === 'function' ? update(session.work[key]) : update
+    store.setExerciseWork(key, value)
+  }
+  const setStepIndex = (value: number) => updateWork('stepIndex', value)
+  const setFeedback = (update: (previous: FeedbackState | null) => FeedbackState | null) => updateWork('feedback', update)
+  const setHint = (value: string | null) => updateWork('hint', value)
+  const setSolved = (value: boolean[]) => updateWork('solved', value)
 
   const answerAreaRef = useRef<HTMLDivElement>(null)
   const step = exercise.steps[stepIndex]!
@@ -94,7 +83,7 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
   }, [stepIndex])
 
   const setAnswer = (value: Answer) => {
-    setAnswers((prev) => {
+    updateWork('answers', (prev) => {
       const next = [...prev]
       next[stepIndex] = value
       return next
@@ -172,7 +161,7 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
     <div className="exercise-view">
       <header className="exercise-header">
         <div className="session-progress">
-          Opgave {itemNumber} van {SESSION_TARGET_ITEMS}
+          {store.practiceMode === 'tables' ? 'Tafels · ' : ''}Opgave {itemNumber} van {SESSION_TARGET_ITEMS}
           <span className="progress-dots" aria-hidden>
             {Array.from({ length: SESSION_TARGET_ITEMS }, (_, i) => (
               <span
@@ -190,7 +179,7 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
             type="button"
             className="selection-note"
             aria-expanded={noteOpen}
-            onClick={() => setNoteOpen((v) => !v)}
+            onClick={() => updateWork('noteOpen', (v) => !v)}
           >
             {store.lastSelectionExplanation}
           </button>
@@ -208,7 +197,7 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
           <h2 className="exercise-title">{skill.titleNl}</h2>
           <p className="exercise-instruction">{exercise.instructionNl}</p>
 
-          <ExerciseWidget widget={exercise.widget} />
+          <ExerciseWidget widget={visibleExerciseWidget(session, allSolved)} />
         </div>
 
         <div className="exercise-work">
@@ -478,4 +467,15 @@ function placeholderFor(step: GeneratedStep): string {
     default:
       return 'Jouw antwoord…'
   }
+}
+
+
+/** Independent facts hide the model; help and feedback restore the full array. */
+export function visibleExerciseWidget(session: ExerciseSessionState, solved: boolean) {
+  const widget = session.exercise.widget
+  if (widget?.type !== 'multiplication-array') return widget
+  const helpVisible = session.hintLevel > 0 || solved
+  if (helpVisible) return { ...widget, props: { ...widget.props, mode: 'array' } }
+  if (session.currentScaffold === 'S2' || session.currentScaffold === 'S3') return null
+  return widget
 }

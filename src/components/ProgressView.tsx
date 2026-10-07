@@ -7,6 +7,7 @@
  */
 import { useMemo, useState } from 'react'
 import type { LearnerStore } from '../store/learner-store'
+import { TABLES, isTableSkill } from '../generators/multiplication-facts'
 import { SUPPORTED_SKILLS } from '../generators'
 import { KNOWLEDGE_GRAPH, THEME_META } from '../domain/knowledge-graph'
 import { childStatusText, masteryProgress } from '../domain/child-status'
@@ -24,7 +25,7 @@ export function ProgressView({ store }: { store: LearnerStore }) {
       'tijd-geld': { primary: [], bridges: [] },
     }
     for (const node of KNOWLEDGE_GRAPH) {
-      if (!SUPPORTED_SKILLS.includes(node.id)) continue
+      if (!SUPPORTED_SKILLS.includes(node.id) || isTableSkill(node.id)) continue
       const canonical = node.themes[0]!
       grouped[canonical].primary.push(node)
       for (const theme of node.themes.slice(1)) {
@@ -84,6 +85,14 @@ export function ProgressView({ store }: { store: LearnerStore }) {
           )
         })}
       </div>
+      <section className="settings-card">
+        <h3>Tafels oefenen</h3>
+        <p className="muted">Je tafels hebben hun eigen voortgang. Bij elke tafel oefenen we alle sommen van 1 tot en met 10.</p>
+        <ul className="constellation">
+          {TABLES.map((n) => <SkillRow key={n} store={store} skillId={`MUL.FACT.T${n}`}
+            title={`Tafel van ${n}`} can={`Ik ken de tafel van ${n}, ook als een factor ontbreekt.`} />)}
+        </ul>
+      </section>
     </div>
   )
 }

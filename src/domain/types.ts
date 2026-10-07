@@ -239,7 +239,7 @@ export interface StepValidation {
 }
 
 export interface WidgetSpec {
-  type: 'dhte-grid' | 'number-line' | 'column-grid' | 'ruler' | 'clock' | 'division-groups' | 'money-tray'
+  type: 'multiplication-array' | 'dhte-grid' | 'number-line' | 'column-grid' | 'ruler' | 'clock' | 'division-groups' | 'money-tray'
   props: Record<string, unknown>
 }
 
@@ -283,10 +283,32 @@ export interface StepResponse {
   attemptCount: number
 }
 
+export type ExerciseAnswer = string | number | Record<string, string | number>
+
+/** Work in progress survives view changes, but is not evidence or saved profile data. */
+export interface ExerciseFeedback {
+  validation: StepValidation
+  stepId: string
+  seq: number
+  attempt: number
+  advancedTo: number | null
+  stale: boolean
+}
+
+export interface ExerciseWorkState {
+  stepIndex: number
+  feedback: ExerciseFeedback | null
+  hint: string | null
+  noteOpen: boolean
+  answers: ExerciseAnswer[]
+  solved: boolean[]
+}
+
 export interface ExerciseSessionState {
   id: string
   visitId: string
   exercise: GeneratedExercise
+  work: ExerciseWorkState
   currentScaffold: ScaffoldTier
   highestAssistanceUsed: ScaffoldTier
   hintLevel: number // 0 none, 1 attention, 2 relationship, 3 model, 4 worked step
@@ -304,6 +326,7 @@ export interface ExerciseSessionState {
 export interface LearnerPreferences {
   nickname: string | null
   reducedMotion: boolean
+  selectedTables?: number[]
   chosenTheme: ThemeId | null
 }
 

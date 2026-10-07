@@ -12,6 +12,8 @@ export function ExerciseWidget({ widget }: { widget: WidgetSpec | null }) {
   if (!widget) return null
   const p = widget.props
   switch (widget.type) {
+    case 'multiplication-array':
+      return <MultiplicationArray rows={p.rows as number} columns={p.columns as number} split={p.split as number} mode={p.mode as 'array' | 'strategy'} />
     case 'dhte-grid':
       return <DhteGrid columns={(p.columns as string[]) ?? ['D', 'H', 'T', 'E']} />
     case 'number-line':
@@ -355,5 +357,37 @@ function MoneyTray({ price, paid }: { price: number; paid: number }) {
         </div>
       </div>
     </div>
+  )
+}
+
+
+/** Rows stay spatially aligned so the five-row anchor connects to the equation. */
+function MultiplicationArray({ rows, columns, split, mode }: { rows: number; columns: number; split: number; mode: 'array' | 'strategy' }) {
+  const hasSplit = rows > split
+  if (mode === 'strategy') {
+    const expression = hasSplit ? `${split} × ${columns} + ${rows - split} × ${columns}`
+      : Array.from({ length: rows }, () => columns).join(' + ')
+    return (
+      <figure className="multiplication-strategy">
+        <figcaption>{hasSplit ? 'Gebruik 5 rijen als steuntje:' : 'Denk aan gelijke groepjes:'}</figcaption>
+        <p>{expression}</p>
+        <span className="muted">Wil je de rijen zien? Kies Hint.</span>
+      </figure>
+    )
+  }
+  return (
+    <figure className="multiplication-array">
+      <svg viewBox={`0 0 ${columns * 26 + 28} ${rows * 26 + (hasSplit ? 20 : 0) + 16}`}
+        role="img" aria-label={`${rows} rijen met elk ${columns} stippen${hasSplit ? `, gesplitst in ${split} en ${rows - split} rijen` : ''}`}>
+        {Array.from({ length: rows }, (_, row) => Array.from({ length: columns }, (_, col) => (
+          <circle key={`${row}-${col}`} cx={27 + col * 26} cy={20 + row * 26 + (hasSplit && row >= split ? 20 : 0)}
+            r="8" fill={row < split ? 'var(--primary, #5745b5)' : '#b45309'} />
+        )))}
+      </svg>
+      <figcaption>
+        <p>{rows} rijen van {columns}: {rows} × {columns}</p>
+        {hasSplit && <p>Splits bij 5: <strong>{split} × {columns}</strong> + <strong>{rows - split} × {columns}</strong></p>}
+      </figcaption>
+    </figure>
   )
 }
