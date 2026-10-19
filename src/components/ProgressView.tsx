@@ -10,7 +10,7 @@ import type { LearnerStore } from '../store/learner-store'
 import { TABLES, isTableSkill } from '../generators/multiplication-facts'
 import { SUPPORTED_SKILLS } from '../generators'
 import { KNOWLEDGE_GRAPH, THEME_META } from '../domain/knowledge-graph'
-import { childStatusText, masteryProgress } from '../domain/child-status'
+import { childStatusText, masteryProgress, pathStage, STAGE_LABELS } from '../domain/child-status'
 import type { SkillId, ThemeId } from '../domain/types'
 
 export function ProgressView({ store }: { store: LearnerStore }) {
@@ -23,6 +23,7 @@ export function ProgressView({ store }: { store: LearnerStore }) {
       meten: { primary: [], bridges: [] },
       'vermenigvuldigen-delen': { primary: [], bridges: [] },
       'tijd-geld': { primary: [], bridges: [] },
+      grafieken: { primary: [], bridges: [] },
     }
     for (const node of KNOWLEDGE_GRAPH) {
       if (!SUPPORTED_SKILLS.includes(node.id) || isTableSkill(node.id)) continue
@@ -129,6 +130,7 @@ function SkillRow({
           ))}
         </span>
         {status && <span className="kc-fresh">{status}</span>}
+        <StageBadge stage={pathStage(state)} />
       </div>
       {progress && (
         <div
@@ -156,4 +158,9 @@ function SkillRow({
       <div className="kc-can">{can}</div>
     </li>
   )
+}
+
+/** met hulp → zelf → toetsvorm → na een week nog. */
+export function StageBadge({ stage }: { stage: ReturnType<typeof pathStage> }) {
+  return <span className={`stage-badge stage-${stage}`}>{STAGE_LABELS[stage]}</span>
 }

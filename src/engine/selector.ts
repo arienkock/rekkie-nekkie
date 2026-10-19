@@ -100,6 +100,8 @@ export interface SelectionContext {
   recentSkillIds: SkillId[]
   now: Date
   intentSkill: SkillId | null
+  /** Maatwerk after a practice test: favoured like a chosen skill. */
+  focusSkills?: SkillId[]
 }
 
 export interface SelectionResult {
@@ -121,6 +123,9 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
   const growthCandidates: Candidate[] = []
   const transferCandidates: Candidate[] = []
   const teachFirstCandidates: Candidate[] = []
+  /** Rested skills: used only when nothing else could be served at all
+   *  (e.g. a session on one chosen table). */
+  const restedCandidates: Candidate[] = []
 
   for (const id of eligible) {
     const state = skills.states[id]
@@ -152,7 +157,15 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
       })
     }
     // A saturated skill still gets due reviews, but no growth/teach-first slots.
-    if (saturated) continue
+    if (saturated) {
+      if (state) {
+        restedCandidates.push({
+          skillId: id, purpose: 'growth', predictedCorrect: predicted, ready, overdueDays,
+          score: 0, scoreTerms: {}, reason: 'zpd-growth', explanationNl: 'Nog een keer, omdat je dit gekozen hebt.',
+        })
+      }
+      continue
+    }
     // Readiness gates the *introduction* of a skill. Once introduced, it keeps
     // its growth slot even if a parent has not yet been verified: school
     // teaches it regardless, and without practice its support never fades.
@@ -201,6 +214,7 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
   if (chosenPool.length === 0) {
     // Fallback with explicit pool priority (review > growth > transfer).
     chosenPool = [...reviewCandidates, ...growthCandidates, ...transferCandidates, ...teachFirstCandidates]
+    if (chosenPool.length === 0) chosenPool = restedCandidates
     purpose =
       reviewCandidates.length > 0
         ? 'review'
@@ -247,6 +261,8 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
     // look permanently fresh, and they were served again and again.
     const evidenceNeed = state ? 1 - Math.min(1, state.exposureCount / 8) : 1
     const learnerIntent = ctx.intentSkill === c.skillId ? 1 : 0.2
+    // Maatwerk after a practice test outranks ordinary growth.
+    const maatwerk = ctx.focusSkills?.includes(c.skillId) ? 1 : 0
     const reviewUrgency = Math.min(1, c.overdueDays / 7)
     const zpd = zpdFit(c.predictedCorrect, c.purpose)
     const terms = {
@@ -255,13 +271,15 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
       evidenceNeed,
       learnerIntent,
       bundleContinuity: 0.5,
+      maatwerk,
     }
     const score =
       0.3 * terms.zpd +
       0.25 * terms.reviewUrgency +
       0.2 * terms.evidenceNeed +
       0.15 * terms.learnerIntent +
-      0.1 * terms.bundleContinuity
+      0.1 * terms.bundleContinuity +
+      0.35 * terms.maatwerk
     return { ...c, score: score + rand() * 0.01, scoreTerms: terms }
   })
 
@@ -269,7 +287,8 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
 
   // Growth band filter: if no growth candidate reaches .65, pick teach-first/S0.
   if (purpose === 'growth') {
-    const inBand = scored.filter((c) => c.predictedCorrect >= 0.65 && c.predictedCorrect <= 0.85)
+    // Maatwerk is chosen because she just failed it: it never predicts "in band".
+    const inBand = scored.filter((c) => (c.predictedCorrect >= 0.65 && c.predictedCorrect <= 0.85) || c.scoreTerms.maatwerk === 1)
     const bandPool = inBand.length > 0 ? inBand : scored
     bandPool.sort((a, b) => b.score - a.score)
     const best = bandPool[0]!

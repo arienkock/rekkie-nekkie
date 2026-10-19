@@ -7,6 +7,8 @@
  */
 import type { DifficultyBand, GeneratedExercise } from '../domain/types'
 import { SeededRng } from '../engine/rng'
+import { BOOK } from '../domain/book-wording'
+import { estimateStep, roundTo, sumEstimates } from './kit'
 import type { GeneratorContext } from './types'
 import { parseIntAnswer, uniqueId } from './types'
 
@@ -56,6 +58,7 @@ export function generateColumnarAddition(ctx: GeneratorContext): GeneratedExerci
       solutionNl: `${a % 10} + ${b % 10} = ${(a % 10) + (b % 10)}, dus onthoud ${carryFromUnits}`,
       skillTarget: { skillId: 'ADD.COLUMN.Carry', role: 'primary' },
       revealsAnswer: false,
+      expected: carryFromUnits,
       validate: (answer) => {
         const v = parseIntAnswer(answer as string | number)
         if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf 0 of 1.', misconceptionId: null, invalidFormat: true }
@@ -81,13 +84,32 @@ export function generateColumnarAddition(ctx: GeneratorContext): GeneratedExerci
     })
   }
 
+  // Independent and test format follow the book: estimate first (≈), then
+  // the exact answer (=), worked out in columns.
+  const bookForm = ctx.tier === 'S2' || ctx.tier === 'S3'
+  if (bookForm) {
+    const canonical = roundTo(a, 100) + roundTo(b, 100)
+    steps.push(estimateStep({
+      id: 'estimate',
+      prompt: `${a} + ${b} ≈`,
+      skill: 'META.CHECK.EstimateInverse',
+      role: 'supporting',
+      solution: `${a} + ${b} ≈ ${roundTo(a, 100)} + ${roundTo(b, 100)} = ${canonical}`,
+      accepted: sumEstimates([a, b]),
+      canonical,
+      how: `${roundTo(a, 100)} + ${roundTo(b, 100)} = ${canonical}, of met tientallen.`,
+      exact: total,
+    }))
+  }
+
   steps.push({
     id: 'sum',
-    promptNl: `Reken onder elkaar uit: ${a} + ${b} = ?`,
+    promptNl: bookForm ? `${a} + ${b} =` : `Reken onder elkaar uit: ${a} + ${b} = ?`,
     answerType: { kind: 'integer' },
     solutionNl: `${a} + ${b} = ${total}`,
     skillTarget: { skillId: ctx.primarySkillId, role: 'primary' },
     revealsAnswer: true,
+    expected: total,
     validate: (answer) => {
       const v = parseIntAnswer(answer as string | number)
       if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf een heel getal.', misconceptionId: null, invalidFormat: true }
@@ -117,9 +139,10 @@ export function generateColumnarAddition(ctx: GeneratorContext): GeneratedExerci
     instructionNl:
       ctx.tier === 'S0' || ctx.tier === 'S1'
         ? 'Reken onder elkaar uit. Begin bij de eenheden en onthoud bij elke tien.'
-        : 'Reken onder elkaar uit.',
+        : BOOK.zetOnderElkaarSchatEerst,
     steps,
-    widget: { type: 'column-grid', props: { operation: '+', operands: [a, b] } },
+    // The test page has no grid: from S2 on she sets out the columns herself.
+    widget: bookForm ? null : { type: 'column-grid', props: { operation: '+', operands: [a, b] } },
     primarySkillId: ctx.primarySkillId,
     supportingSkillIds: [],
     difficultyBand: ctx.band,

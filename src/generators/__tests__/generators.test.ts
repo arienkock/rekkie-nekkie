@@ -5,6 +5,11 @@ import { SeededRng } from '../../engine/rng'
 import { fromMinuteOfDay } from '../../domain/dutch-time'
 import type { GeneratorContext } from '../types'
 
+/** The Dutch phrase of a clock item: quoted in supported prompts, bare in the test format. */
+function phraseOf(prompt: string): string {
+  return prompt.match(/"([^"]+)"/)?.[1] ?? prompt.trim()
+}
+
 function ctx(overrides: Partial<GeneratorContext> = {}): GeneratorContext {
   return {
     seed: 'test-seed',
@@ -121,7 +126,7 @@ describe('generators', () => {
         for (let i = 0; i < 30; i++) {
           const ex = generateExercise(ctx({ primarySkillId: skill, seed: `coach:${skill}:${i}`, tier }))
           const step = ex.steps[0]!
-          const phrase = step.promptNl.match(/"([^"]+)"/)![1]!
+          const phrase = phraseOf(step.promptNl)
           const isHalfPhrase = halfWord.test(phrase)
           // Wrong-but-unrecognised answer exercises the fallback feedback.
           const wrong = step.validate('7:07')
@@ -157,7 +162,7 @@ describe('generators', () => {
         for (let i = 0; i < 30; i++) {
           const ex = generateExercise(ctx({ primarySkillId: skill, seed: `dir:${skill}:${i}`, tier }))
           const step = ex.steps[0]!
-          const phrase = step.promptNl.match(/"([^"]+)"/)![1]!
+          const phrase = phraseOf(step.promptNl)
           // "voor" and "half" name the hour ahead; "uur" and "over" the one behind.
           const namesUpcomingHour = /\b(voor|half)\b/.test(phrase)
           const copy = [
@@ -220,7 +225,7 @@ describe('generators', () => {
       for (const tier of ['S1', 'S3'] as const) {
         for (let i = 0; i < 30; i++) {
           const ex = generateExercise(ctx({ primarySkillId: skill, seed: `cnt:${skill}:${i}`, tier }))
-          const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+          const phrase = phraseOf(ex.steps[0]!.promptNl)
           // A whole hour has no offset, and "half 9" is the anchor itself.
           if (/^\d{1,2} uur$/.test(phrase) || /^half \d{1,2}$/.test(phrase)) continue
           const countsBack = /\bvoor\b/.test(phrase)
@@ -245,7 +250,7 @@ describe('generators', () => {
       for (const tier of ['S1', 'S3'] as const) {
         for (let i = 0; i < 30; i++) {
           const ex = generateExercise(ctx({ primarySkillId: skill, seed: `anchor:${skill}:${i}`, tier }))
-          const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+          const phrase = phraseOf(ex.steps[0]!.promptNl)
           const own = phrase.match(/half (\d{1,2})/)?.[1]
           if (own === undefined) continue
           // The worked example deliberately names another hour; it announces
@@ -310,7 +315,7 @@ describe('generators', () => {
     for (const skill of CLOCK_SKILLS) {
       for (let i = 0; i < 400; i++) {
         const ex = generateExercise(ctx({ primarySkillId: skill, seed: `wrap:${skill}:${i}`, tier: 'S2' }))
-        const phrase = ex.steps[0]!.promptNl.match(/"([^"]+)"/)![1]!
+        const phrase = phraseOf(ex.steps[0]!.promptNl)
         wrapped.set(phrase, ex.variationTags.includes('12-wrap'))
       }
     }
@@ -405,8 +410,8 @@ describe('generators', () => {
   it('unit conversions use the actual ratios (m↔km = 1,000)', () => {
     for (let i = 0; i < 25; i++) {
       const ex = generateExercise(ctx({ primarySkillId: 'MEAS.LENGTH.Convert', seed: `u${i}` }))
-      const prompt = ex.steps[0]!.promptNl // "7 km = ? m"
-      const m = prompt.match(/(\d+) (km|mm|dm|cm|m) = \? (km|mm|dm|cm|m)/)
+      const prompt = ex.steps[0]!.promptNl // "7 km = … m"
+      const m = prompt.match(/(\d+) (km|mm|dm|cm|m) = … (km|mm|dm|cm|m)/)
       expect(m).not.toBeNull()
       const answer = Number(ex.steps[0]!.solutionNl.split(' ')[3])
       const ratios: Record<string, number> = { km: 1e6, m: 1e3, dm: 100, cm: 10, mm: 1 }
@@ -417,8 +422,10 @@ describe('generators', () => {
   })
 
   it('rejects unsupported skills and constraint-violating requests', () => {
-    expect(() => generateExercise(ctx({ primarySkillId: 'FND.COUNT.Group' }))).toThrow()
-    expect(() => generateExercise(ctx({ primarySkillId: 'TIME.CALC.Elapsed' }))).toThrow()
+    // Every graph node has a generator now (see all-generators.test.ts);
+    // an unknown id must still be refused rather than silently misrouted.
+    expect(() => generateExercise(ctx({ primarySkillId: 'XYZ.Unknown' }))).toThrow()
+    expect(() => generateExercise(ctx({ primarySkillId: 'TIME.CALC' }))).toThrow()
   })
 
   it('ADD.COLUMN.Align never carries; ADD.COLUMN.Carry always carries', () => {

@@ -28,10 +28,9 @@ describe('decideFade', () => {
     expect(decideFade(withStreak('S0', 2))).toMatchObject({ fade: true, nextTier: 'S1' })
   })
 
-  it('keeps S2 until three independent successes and Level 2', () => {
-    expect(decideFade(withStreak('S2', 2, 2)).fade).toBe(false)
-    expect(decideFade(withStreak('S2', 3, 1)).fade).toBe(false)
-    expect(decideFade(withStreak('S2', 3, 2))).toMatchObject({ fade: true, nextTier: 'S3' })
+  it('moves S2 to toetsvorm after two independent successes, before Level 2', () => {
+    expect(decideFade(withStreak('S2', 1, 1)).fade).toBe(false)
+    expect(decideFade(withStreak('S2', 2, 1))).toMatchObject({ fade: true, nextTier: 'S3' })
   })
 
   it('never fades right after a comparable failure', () => {

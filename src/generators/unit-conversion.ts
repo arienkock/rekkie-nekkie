@@ -5,6 +5,7 @@
  */
 import type { GeneratedExercise } from '../domain/types'
 import { SeededRng } from '../engine/rng'
+import { BOOK } from '../domain/book-wording'
 import type { GeneratorContext } from './types'
 import { parseIntAnswer, uniqueId } from './types'
 
@@ -47,15 +48,16 @@ export function generateUnitConversion(ctx: GeneratorContext): GeneratedExercise
       id: uniqueId(rng),
       archetypeId: 'unit-conversion',
       seed: ctx.seed,
-      instructionNl: 'Zet de gemengde maat om naar één maat.',
+      instructionNl: ctx.tier === 'S2' || ctx.tier === 'S3' ? BOOK.vulIn : 'Zet de gemengde maat om naar één maat.',
       steps: [
         {
           id: 'compose',
-          promptNl: `${big} m ${small} cm = ? cm`,
+          promptNl: `${big} m ${small} cm = … cm`,
           answerType: { kind: 'integer', unit: 'cm' },
           solutionNl: `${big} m = ${big * 100} cm, dus samen ${total} cm`,
           skillTarget: { skillId: 'MEAS.MIXED.ComposeSplit', role: 'primary' },
           revealsAnswer: true,
+          expected: total,
           validate: (answer) => {
             const v = parseIntAnswer(answer as string | number)
             if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf een heel getal in cm.', misconceptionId: null, invalidFormat: true }
@@ -107,15 +109,16 @@ export function generateUnitConversion(ctx: GeneratorContext): GeneratedExercise
       id: uniqueId(rng),
       archetypeId: 'unit-conversion',
       seed: ctx.seed,
-      instructionNl: `Reken om met de echte verhouding (${family.labelNl}).`,
+      instructionNl: ctx.tier === 'S2' || ctx.tier === 'S3' ? BOOK.vulIn : `Reken om met de echte verhouding (${family.labelNl}).`,
       steps: [
         {
           id: 'convert',
-          promptNl: `${value} ${from} = ? ${to}`,
+          promptNl: `${value} ${from} = … ${to}`,
           answerType: { kind: 'integer', unit: to },
           solutionNl: `${value} ${from} = ${answer} ${to}`,
           skillTarget: { skillId: skill, role: 'primary' },
           revealsAnswer: true,
+          expected: answer,
           validate: (raw) => {
             const v = parseIntAnswer(raw as string | number)
             if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf een heel getal.', misconceptionId: null, invalidFormat: true }

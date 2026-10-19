@@ -56,8 +56,13 @@ export function parseMoneyCents(input: string): number | null {
 
 /** Euro denominations for greedy/minimal payment (integer cents). */
 export const DENOMINATIONS_CENTS: number[] = [
-  50_000, 20_000, 10_000, 5_000, 2_00, 1_00, 50, 20, 10, 5, 2, 1,
+  50_000, 20_000, 10_000, 5_000, 2_000, 1_000, 500, 200, 100, 50, 20, 10, 5, 2, 1,
 ]
+
+/** Book label of a denomination: "€ 20", "€ 2", "50 cent". */
+export function denominationLabel(cents: number): string {
+  return cents >= 100 ? `€ ${cents / 100}` : `${cents} cent`
+}
 
 /** Greedy minimal-coin breakdown; valid for the standard unlimited-supply tray. */
 export function greedyBreakdown(cents: number): Array<{ denom: number; count: number }> {

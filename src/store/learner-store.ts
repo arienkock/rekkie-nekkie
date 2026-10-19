@@ -7,6 +7,7 @@
  */
 import { KNOWLEDGE_GRAPH, getSkill } from '../domain/knowledge-graph'
 import type {
+  ExerciseAnswer,
   ExerciseSessionState,
   ExerciseWorkState,
   GeneratedExercise,
@@ -28,7 +29,9 @@ import { deriveFreshness } from '../engine/memory'
 import { randomSeed, SeededRng } from '../engine/rng'
 import { chooseStartTier, decideFade, decideReSupport, tierIndex } from '../engine/scaffolding'
 import { selectNextSkill } from '../engine/selector'
-import { generateExercise, CURRICULUM_SKILLS, SUPPORTED_SKILLS } from '../generators'
+import { generateExercise, generateTestBlockFor, hasGenerator, CURRICULUM_SKILLS, SUPPORTED_SKILLS } from '../generators'
+import { blockPassed } from '../generators/test-block'
+import { currentLessons, lessonById, proeftoetsById, type Proeftoets } from '../domain/learning-path'
 import {
   canonicalStringify,
   checksumOf,
@@ -40,8 +43,26 @@ import {
 
 import { DEFAULT_TABLES, TABLES } from '../generators/multiplication-facts'
 
-export type PracticeMode = 'curriculum' | 'tables'
+export type PracticeMode = 'curriculum' | 'tables' | 'lesson' | 'proeftoets'
 export const SESSION_TARGET_ITEMS = 8
+/** Her class is in blok 2 (October 2026); a parent can change it in Instellingen. */
+export const DEFAULT_BLOK_ID = 'blok-2'
+
+/** One group of a finished or running proeftoets. */
+export interface ProeftoetsGroupResult {
+  skillId: SkillId
+  correct: number
+  total: number
+  passed: boolean
+  maatwerkNl?: string
+}
+
+/** The result of checking a whole test-format block at once. */
+export interface BlockCheck {
+  /** Steps whose answer could not be read (fix the notation, nothing recorded). */
+  invalid: string[]
+  results: Record<string, StepValidation>
+}
 
 /** One row of per-item session history for the end-of-session summary. */
 export interface SessionResult {
@@ -94,6 +115,11 @@ export class LearnerStore {
   /** After a revealed answer: serve one fresh item of the same skill and
    *  tier next ("Nu jij"), so a reveal never ends the practice. */
   private pendingSibling: { skillId: SkillId; tier: ScaffoldTier } | null = null
+  /** Lesson practice: the lesson whose skills this session draws from. */
+  lessonId: string | null = null
+  /** Practice test in progress (or just finished, for the summary). */
+  proeftoets: Proeftoets | null = null
+  proeftoetsResults: ProeftoetsGroupResult[] = []
   lastSelectionExplanation = ''
   /** True when the last checkpoint save failed (visible recovery path). */
   saveFailed = false
@@ -165,6 +191,9 @@ export class LearnerStore {
     for (const state of Object.values(this.snapshot.skills)) {
       state.memory.delayedSuccessGapsDays ??= []
     }
+    // Skills added to the graph after this profile was created start fresh.
+    for (const node of KNOWLEDGE_GRAPH) this.snapshot.skills[node.id] ??= newSkillState(node.id)
+    this.snapshot.focusSkills ??= []
   }
 
   /** Freshness is derived, never authoritative: recompute from due dates. */
@@ -210,11 +239,25 @@ export class LearnerStore {
 
   // ---- Session flow ----
 
-  startSession(mode: PracticeMode = 'curriculum', tables: number[] = DEFAULT_TABLES): ExerciseSessionState | null {
+  /** Items in the running session: 8, or one per group of a proeftoets. */
+  get sessionTargetItems(): number {
+    return this.practiceMode === 'proeftoets' && this.proeftoets ? this.proeftoets.groups.length : SESSION_TARGET_ITEMS
+  }
+
+  startSession(
+    mode: PracticeMode = 'curriculum',
+    tables: number[] = DEFAULT_TABLES,
+    options: { lessonId?: string; proeftoetsId?: string } = {},
+  ): ExerciseSessionState | null {
     const validTables = [...new Set(tables)].filter((n) => TABLES.includes(n))
     if (mode === 'tables' && validTables.length === 0) return null
+    if (mode === 'lesson' && !lessonById(options.lessonId ?? '')) return null
+    if (mode === 'proeftoets' && !proeftoetsById(options.proeftoetsId ?? '')) return null
     this.practiceMode = mode
     this.selectedTables = validTables
+    this.lessonId = mode === 'lesson' ? options.lessonId! : null
+    this.proeftoets = mode === 'proeftoets' ? proeftoetsById(options.proeftoetsId!) : null
+    this.proeftoetsResults = []
     this.sessionItemPurposes = []
     this.sessionItemsDone = 0
     this.sessionResults = []
@@ -225,13 +268,15 @@ export class LearnerStore {
 
   /** Select and present the next exercise, or null when the session is done. */
   nextExercise(): ExerciseSessionState | null {
-    if (this.sessionItemsDone >= SESSION_TARGET_ITEMS) {
+    if (this.sessionItemsDone >= this.sessionTargetItems) {
       this.currentSession = null
       this.notify()
       return null
     }
+    if (this.practiceMode === 'proeftoets' && this.proeftoets) return this.nextProeftoetsGroup(this.proeftoets)
     const sibling = this.pendingSibling
     this.pendingSibling = null
+    const lesson = this.practiceMode === 'lesson' && this.lessonId ? lessonById(this.lessonId) : null
     const selection = sibling ? {
       skillId: sibling.skillId,
       purpose: 'growth' as const,
@@ -240,7 +285,8 @@ export class LearnerStore {
       {
         skills: {
           supported: this.practiceMode === 'tables'
-            ? this.selectedTables.map((n) => `MUL.FACT.T${n}`) : CURRICULUM_SKILLS,
+            ? this.selectedTables.map((n) => `MUL.FACT.T${n}`)
+            : lesson ? lesson.skills.filter(hasGenerator) : this.pathSkillsForSession(),
           states: this.snapshot.skills,
           practisable: SUPPORTED_SKILLS,
         },
@@ -250,6 +296,7 @@ export class LearnerStore {
         // Skill-directed practice ("vrij oefenen") is a future feature;
         // chosenTheme is a ThemeId, not a SkillId, and must not leak in here.
         intentSkill: null,
+        focusSkills: this.snapshot.focusSkills ?? [],
       },
       () => this.sessionRng.next(),
     )
@@ -285,7 +332,8 @@ export class LearnerStore {
     let exercise: GeneratedExercise | null = null
     for (let attempt = 0; attempt < 6 && !exercise; attempt++) {
       try {
-        const candidate = generateExercise({
+        // S3 is the test format: a block of book-format items without help.
+        const candidate = (tier === 'S3' ? generateTestBlockFor : generateExercise)({
           seed: `${selection.skillId}:${this.snapshot.revision}:${this.sessionItemsDone}:${attempt}:${randomSeed()}`,
           tier,
           band,
@@ -319,7 +367,38 @@ export class LearnerStore {
       this.notify()
       return null
     }
+    return this.present(exercise, tier, sibling !== null)
+  }
 
+  /**
+   * A general session follows the path of the current blok (default: blok 2,
+   * where her class is), plus anything already practised that is due for
+   * review — not all 100 skills at once.
+   */
+  pathSkillsForSession(): SkillId[] {
+    const blokId = this.snapshot.preferences.currentBlokId ?? DEFAULT_BLOK_ID
+    const window = currentLessons(blokId, this.snapshot.skills).flatMap((l) => l.skills)
+    const practised = CURRICULUM_SKILLS.filter((id) => (this.snapshot.skills[id]?.currentVerifiedLevel ?? 0) >= 1)
+    const focus = this.snapshot.focusSkills ?? []
+    return [...new Set([...window, ...practised, ...focus])].filter((id) => hasGenerator(id))
+  }
+
+  /** Practice test: the next group is a block in test format, in the book's order. */
+  private nextProeftoetsGroup(test: Proeftoets): ExerciseSessionState | null {
+    const group = test.groups[this.sessionItemsDone]!
+    const exercise = generateTestBlockFor({
+      seed: `${test.id}:${group.skillId}:${this.snapshot.revision}:${randomSeed()}`,
+      tier: 'S3',
+      band: 'standard',
+      purpose: 'diagnostic',
+      primarySkillId: group.skillId,
+      variant: group.variant,
+    }, group.items)
+    this.lastSelectionExplanation = `${test.titleNl}: opdracht ${this.sessionItemsDone + 1} van ${test.groups.length}.`
+    return this.present(exercise, 'S3', false)
+  }
+
+  private present(exercise: GeneratedExercise, tier: ScaffoldTier, sibling: boolean): ExerciseSessionState {
     this.currentSession = {
       id: `sess-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`,
       visitId: this.visitId,
@@ -346,7 +425,7 @@ export class LearnerStore {
           ? EVIDENCE_WEIGHTS.scaffoldedPrediction
           : EVIDENCE_WEIGHTS.independent,
       lastSavedAt: null,
-      isSibling: sibling !== null,
+      isSibling: sibling,
     }
     this.sessionItemPurposes.push(exercise.purpose)
     this.sessionRecentSkills = [...this.sessionRecentSkills, exercise.primarySkillId].slice(-3)
@@ -393,12 +472,55 @@ export class LearnerStore {
     return validation
   }
 
+  /**
+   * Check a whole test-format block at once ("Klaar, nakijken"). Blank
+   * answers count as wrong, as on a test. Unreadable notation records
+   * nothing: the child fixes it and checks again.
+   */
+  submitBlock(answers: Record<string, ExerciseAnswer>): BlockCheck {
+    const session = this.currentSession
+    if (!session) throw new Error('No active session')
+    const results: Record<string, StepValidation> = {}
+    const invalid: string[] = []
+    for (const step of session.exercise.steps) {
+      const answer = answers[step.id] ?? ''
+      if (isEmptyAnswer(answer)) {
+        results[step.id] = { isCorrect: false, feedbackNl: 'Niet ingevuld.', misconceptionId: null }
+        continue
+      }
+      const validation = step.validate(answer)
+      if (validation.invalidFormat) invalid.push(step.id)
+      results[step.id] = validation
+    }
+    if (invalid.length > 0) {
+      this.notify()
+      return { invalid, results }
+    }
+    for (const step of session.exercise.steps) {
+      const response = session.steps.find((r) => r.stepId === step.id)!
+      if (response.attemptCount > 0) continue
+      response.firstAnswer = answers[step.id] ?? ''
+      response.attemptCount = 1
+      response.outcome = results[step.id]!.isCorrect ? 'correct' : 'incorrect'
+      session.attempts += 1
+    }
+    session.phase = 'feedback'
+    session.work.answers = session.exercise.steps.map((st) => answers[st.id] ?? '')
+    session.work.solved = session.exercise.steps.map(() => true)
+    this.notify()
+    return { invalid, results }
+  }
+
   /** Learner-requested help: expand one layer at a time (§2.5).
    *  Levels 1–3 use the exercise's archetype-specific hint ladder (padded
    *  with generic hints); level 4 reveals the solution and voids evidence. */
   requestHint(): string {
     const session = this.currentSession
     if (!session) throw new Error('No active session')
+    if (session.exercise.format === 'block') {
+      // A test has no hints: help comes afterwards, with the explanation.
+      return 'Bij een toets is er geen hulp. Doe je best; daarna zie je de uitleg.'
+    }
     const generic = [
       'Kijk goed naar de vraag. Wat wordt er gevraagd?',
       'Welke maat, sprong of plek hoort bij dit onderdeel?',
@@ -433,10 +555,22 @@ export class LearnerStore {
     const now = new Date()
 
     // --- Primary skill: one decisive aggregate observation (§2.2) ---
+    // A test-format block passes like a test group: 80% of all its lines
+    // right (estimates included), never "everything or nothing".
+    const isBlock = ex.format === 'block'
+    // A sub-step on the item's own skill is part of the primary evidence,
+    // whatever its role: one item, one observation per skill (§2.2).
+    const countsAsPrimary = (stepId: string) => {
+      const target = ex.steps.find((s) => s.id === stepId)?.skillTarget
+      return !!target && (target.role === 'primary' || target.skillId === ex.primarySkillId)
+    }
     const primaryFirstOutcomes = session.steps
-      .filter((r) => ex.steps.find((s) => s.id === r.stepId)?.skillTarget.role === 'primary')
+      .filter((r) => isBlock || countsAsPrimary(r.stepId))
       .map((r) => r.outcome)
-    const primaryCorrect = primaryFirstOutcomes.length > 0 && primaryFirstOutcomes.every((o) => o === 'correct')
+    const blockCorrect = session.steps.filter((r) => r.outcome === 'correct').length
+    const primaryCorrect = isBlock
+      ? blockPassed(blockCorrect, session.steps.length)
+      : primaryFirstOutcomes.length > 0 && primaryFirstOutcomes.every((o) => o === 'correct')
 
     const revealed = session.hintLevel >= 4
     const eligibility = {
@@ -467,7 +601,8 @@ export class LearnerStore {
         difficultyBand: ex.difficultyBand,
         variationTags: ex.variationTags,
         isInverse: ex.variationTags.includes('inverse-verification'),
-        isTransfer: ex.purpose === 'transfer' || ex.representation === 'story',
+        // A practice test mixes skills like the real test: that is transfer.
+        isTransfer: ex.purpose === 'transfer' || ex.representation === 'story' || this.practiceMode === 'proeftoets',
         efficientStrategyObserved: primaryCorrect && session.attempts <= session.exercise.steps.length,
         activeTimeMs: 60_000,
         now,
@@ -488,7 +623,7 @@ export class LearnerStore {
     // --- Supporting skills: one attributable sub-step each (0.6 weight) ---
     for (const r of session.steps) {
       const step = ex.steps.find((s) => s.id === r.stepId)
-      if (!step || step.skillTarget.role !== 'supporting' || r.outcome === 'unknown') continue
+      if (!step || isBlock || countsAsPrimary(step.id) || r.outcome === 'unknown') continue
       const supportingState = this.skillState(step.skillTarget.skillId)
       const sub = applyObservationToSkill(supportingState, {
         skillId: step.skillTarget.skillId,
@@ -537,7 +672,14 @@ export class LearnerStore {
 
       // --- Scaffolding fading / re-support for the next fresh item ---
       const sc = applied.state.scaffolding
-      if (primaryCorrect && eligibility.weight > 0) {
+      if (isBlock && !primaryCorrect) {
+        // A failed test block goes back to practising on her own (Zelf).
+        sc.currentTier = 'S2'
+        sc.qualifyingSuccessStreak = 0
+      } else if (isBlock && primaryCorrect) {
+        // Maatwerk is done once the skill passes in test format again.
+        this.snapshot.focusSkills = (this.snapshot.focusSkills ?? []).filter((id) => id !== ex.primarySkillId)
+      } else if (primaryCorrect && eligibility.weight > 0) {
         const fade = decideFade(applied.state)
         if (fade.fade) {
           sc.currentTier = fade.nextTier
@@ -563,6 +705,17 @@ export class LearnerStore {
       skipped: false,
       firstTimeSuccess: wasUnexposed && primaryCorrect,
     })
+    if (this.practiceMode === 'proeftoets' && this.proeftoets) {
+      const group = this.proeftoets.groups[this.sessionItemsDone]
+      this.proeftoetsResults.push({
+        skillId: ex.primarySkillId,
+        correct: blockCorrect,
+        total: session.steps.length,
+        passed: primaryCorrect,
+        maatwerkNl: group?.maatwerkNl,
+      })
+      if (this.proeftoetsResults.length === this.proeftoets.groups.length) this.applyMaatwerk()
+    }
     this.snapshot.totalExercisesCompleted += 1
 
     this.sessionItemsDone += 1
@@ -583,6 +736,23 @@ export class LearnerStore {
     this.persist()
     this.profileStore.clearJournal()
     this.notify()
+  }
+
+  /**
+   * After a practice test: every group that did not pass becomes maatwerk.
+   * More than half wrong → back to the bridge (S1: model and written
+   * layout side by side); otherwise practise on her own (S2). Focus skills
+   * are favoured in every session until they pass a test block again.
+   */
+  private applyMaatwerk(): void {
+    const failed = this.proeftoetsResults.filter((r) => !r.passed)
+    for (const r of failed) {
+      const state = this.skillState(r.skillId)
+      state.scaffolding.currentTier = r.correct / r.total < 0.5 ? 'S1' : 'S2'
+      state.scaffolding.qualifyingSuccessStreak = 0
+      this.snapshot.skills[r.skillId] = state
+    }
+    this.snapshot.focusSkills = [...new Set([...(this.snapshot.focusSkills ?? []), ...failed.map((r) => r.skillId)])]
   }
 
   /** Stop without penalty: unfinished work is preserved, no negative update. */

@@ -74,13 +74,15 @@ describe('problem selector', () => {
   })
 
   it('looks through prerequisites that cannot be practised', () => {
-    const practisable = new Set<SkillId>(SUPPORTED_SKILLS)
-    // PV.DHTE.Identify has no generator; Decompose has nothing practisable above it.
-    expect(effectivePrerequisites('PV.DHTE.Decompose', practisable)).toEqual([])
-    // ADD.JUMP.TenBridge → PV.DHTE.Exchange (no generator) → PV.DHTE.Decompose.
-    expect(effectivePrerequisites('ADD.JUMP.TenBridge', practisable).sort())
-      .toEqual(['ADD.JUMP.NoBridge', 'PV.DHTE.Decompose'])
+    // Every graph node has a generator now; the look-through still matters
+    // for any future node that does not. Simulate PV.DHTE.Identify without one.
+    const practisable = new Set<SkillId>(SUPPORTED_SKILLS.filter((id) => id !== 'PV.DHTE.Identify'))
+    // PV.DHTE.Identify → FND.COUNT.Group (practisable) replaces it.
+    expect(effectivePrerequisites('PV.DHTE.Decompose', practisable)).toEqual(['FND.COUNT.Group'])
+    expect(effectivePrerequisites('PV.DHTE.Decompose', new Set(SUPPORTED_SKILLS))).toEqual(['PV.DHTE.Identify'])
     const states = freshStates()
+    states['FND.COUNT.Group']!.currentVerifiedLevel = 1
+    states['FND.COUNT.Group']!.masteryProbability = 0.9
     expect(isReady('PV.DHTE.Decompose', states, new Date())).toBe(false)
     expect(isReady('PV.DHTE.Decompose', states, new Date(), practisable)).toBe(true)
   })

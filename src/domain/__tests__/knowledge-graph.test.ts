@@ -3,21 +3,22 @@ import { KNOWLEDGE_GRAPH, prerequisiteEdges } from '../knowledge-graph'
 import { validateGraph } from '../graph-validation'
 
 describe('knowledge graph catalog', () => {
-  it('contains the complete initial KC inventory of 89 nodes', () => {
-    expect(KNOWLEDGE_GRAPH.length).toBe(89)
-    expect(new Set(KNOWLEDGE_GRAPH.map((n) => n.id)).size).toBe(89)
+  it('contains the 89 initial KCs plus the 13 mined from blok 2', () => {
+    expect(KNOWLEDGE_GRAPH.length).toBe(102)
+    expect(new Set(KNOWLEDGE_GRAPH.map((n) => n.id)).size).toBe(102)
   })
 
   it('has the full prerequisite edge list from the design tables', () => {
     // Transcribed from docs/adaptive-learning-design.md §1.3 (tables A–E).
-    expect(prerequisiteEdges().length).toBe(149)
+    // Plus the blok 2 / Grafieken edges.
+    expect(prerequisiteEdges().length).toBe(149 + 24)
   })
 
   it('validates: unique ids, resolved deps, no cycles, topological order', () => {
     const result = validateGraph()
     expect(result.errors).toEqual([])
     expect(result.valid).toBe(true)
-    expect(result.topologicalOrder.length).toBe(89)
+    expect(result.topologicalOrder.length).toBe(102)
   })
 
   it('every KC is reachable from an in-scope root', () => {
@@ -32,8 +33,8 @@ describe('knowledge graph catalog', () => {
     }
   })
 
-  it('covers all four themes', () => {
+  it('covers all five themes', () => {
     const themes = new Set(KNOWLEDGE_GRAPH.flatMap((n) => n.themes))
-    expect(themes.size).toBe(4)
+    expect(themes.size).toBe(5)
   })
 })

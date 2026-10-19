@@ -1,4 +1,5 @@
 import type { GeneratedExercise } from '../domain/types'
+import { BOOK } from '../domain/book-wording'
 import { SeededRng } from '../engine/rng'
 import type { GeneratorContext } from './types'
 import { parseIntAnswer, uniqueId } from './types'
@@ -15,7 +16,10 @@ export function generateMultiplicationFacts(ctx: GeneratorContext): GeneratedExe
   const product = multiplier * table
   const supported = ctx.tier === 'S0' || ctx.tier === 'S1'
   const missing = !supported && rng.next() < 0.3
-  const story = !supported && !missing && (ctx.tier === 'S3' || rng.next() < 0.35)
+  // S3 is the test format: bare facts under "Reken uit.", as on the test page.
+  const test = ctx.tier === 'S3'
+  // The test page mixes in a word problem now and then.
+  const story = !supported && !missing && rng.next() < (test ? 0.2 : 0.35)
   const target = missing ? multiplier : product
   const equation = `${multiplier} × ${table} = ${product}`
   const split = Math.min(5, multiplier)
@@ -25,13 +29,13 @@ export function generateMultiplicationFacts(ctx: GeneratorContext): GeneratedExe
   return {
     id: uniqueId(rng), archetypeId: 'multiplication-facts', seed: ctx.seed,
     primarySkillId: ctx.primarySkillId, supportingSkillIds: [],
-    instructionNl: missing ? `Welk getal ontbreekt? □ × ${table} = ${product}`
+    instructionNl: test && !story ? BOOK.rekenUit : missing ? `Welk getal ontbreekt? □ × ${table} = ${product}`
       : story ? `Er zijn ${multiplier} doosjes met elk ${table} potloden. Hoeveel potloden zijn dat samen?`
         : `Hoeveel is ${multiplier} × ${table}?`,
     steps: [{
-      id: 'fact', promptNl: missing ? `□ × ${table} = ${product}` : story ? 'Hoeveel potloden zijn er samen?' : `${multiplier} × ${table} = ?`,
+      id: 'fact', promptNl: missing ? `… × ${table} = ${product}` : story ? 'Hoeveel potloden zijn er samen?' : `${multiplier} × ${table} =`,
       answerType: { kind: 'integer' }, skillTarget: { skillId: ctx.primarySkillId, role: 'primary' },
-      revealsAnswer: true, solutionNl: missing ? `${product} : ${table} = ${multiplier}` : equation,
+      revealsAnswer: true, expected: target, solutionNl: missing ? `${product} : ${table} = ${multiplier}` : equation,
       validate(answer) {
         const value = parseIntAnswer(answer as string | number)
         if (value === null) return { isCorrect: false, invalidFormat: true, feedbackNl: 'Vul een heel getal in.', misconceptionId: null }
@@ -42,7 +46,7 @@ export function generateMultiplicationFacts(ctx: GeneratorContext): GeneratedExe
     }],
     // Independent work hides the array until help is requested or feedback is shown.
     // Missing-factor arrays would directly disclose the unknown number of rows.
-    widget: missing ? null : { type: 'multiplication-array', props: { rows: multiplier, columns: table, split, mode: ctx.tier === 'S1' ? 'strategy' : 'array' } },
+    widget: missing || test ? null : { type: 'multiplication-array', props: { rows: multiplier, columns: table, split, mode: ctx.tier === 'S1' ? 'strategy' : 'array' } },
     representation: ctx.tier === 'S0' ? 'pictorial' : story ? 'story' : 'symbolic',
     difficultyBand: ctx.band, purpose: ctx.purpose,
     variationTags: [`T${table}:m${multiplier}`, missing ? 'missing-factor' : 'product', ...(missing ? ['inverse-verification'] : [])],

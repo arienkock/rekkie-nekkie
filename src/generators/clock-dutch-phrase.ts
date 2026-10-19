@@ -4,6 +4,7 @@
  * TIME.READ.DutchHalfNextHour, TIME.READ.DutchPhrasingHalfHourOffset.
  * The Dutch phrasing engine lives in domain/dutch-time.ts.
  */
+import { BOOK } from '../domain/book-wording'
 import type { GeneratedExercise } from '../domain/types'
 import type { DutchPhraseShape } from '../domain/dutch-time'
 import {
@@ -236,15 +237,16 @@ export function generateClockDutchPhrase(ctx: GeneratorContext): GeneratedExerci
     id: uniqueId(rng),
     archetypeId: 'clock-reading',
     seed: ctx.seed,
-    instructionNl: supported ? coaching.supportedInstructionNl : 'Hoe laat is het?',
+    instructionNl: supported ? coaching.supportedInstructionNl : BOOK.vulDigitaleTijd,
     steps: [
       {
         id: 'digital',
-        promptNl: `Het is "${phrase}". Schrijf de digitale tijd (bijv. 08:20).`,
+        promptNl: ctx.tier === 'S3' ? `${phrase}` : `Het is "${phrase}". Schrijf de digitale tijd (bijv. 08:20).`,
         answerType: { kind: 'time', use24Hour: false },
         solutionNl: formatDigital12(time),
         skillTarget: { skillId: skill, role: 'primary' },
         revealsAnswer: true,
+        expected: formatDigital12(time),
         validate: (answer) => {
           const v = parseTimeAnswer(answer as string | number)
           if (v === null) {

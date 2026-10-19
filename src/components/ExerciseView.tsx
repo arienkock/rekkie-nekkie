@@ -18,9 +18,9 @@
 import { useEffect, useRef } from 'react'
 import type { AnswerType, ExerciseAnswer, ExerciseFeedback, ExerciseSessionState, ExerciseWorkState, GeneratedExercise, GeneratedStep, StepValidation } from '../domain/types'
 import type { LearnerStore } from '../store/learner-store'
-import { SESSION_TARGET_ITEMS } from '../store/learner-store'
 import { getSkill } from '../domain/knowledge-graph'
 import { ExerciseWidget } from './widgets'
+import { TestBlockView } from './TestBlockView'
 
 type Answer = ExerciseAnswer
 type FeedbackState = ExerciseFeedback
@@ -32,7 +32,7 @@ const TIER_LABELS: Record<string, string> = {
   S0: 'Samen oefenen',
   S1: 'Met een beetje hulp',
   S2: 'Zelf oefenen',
-  S3: 'Uitdagend',
+  S3: 'Toetsvorm',
 }
 
 /** Hints 1–3 come from the ladder; the 4th press reveals the solution. */
@@ -44,6 +44,12 @@ function outcomeOf(validation: StepValidation): Outcome {
 }
 
 export function ExerciseView({ store }: { store: LearnerStore }) {
+  const session = store.currentSession!
+  if (session.exercise.format === 'block') return <TestBlockView store={store} />
+  return <ItemView store={store} />
+}
+
+function ItemView({ store }: { store: LearnerStore }) {
   const session = store.currentSession!
   const exercise = session.exercise
   const { stepIndex, feedback, hint, noteOpen, answers, solved } = session.work
@@ -153,7 +159,8 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
   }
 
   const skill = getSkill(exercise.primarySkillId)
-  const itemNumber = Math.min(store.sessionItemsDone + 1, SESSION_TARGET_ITEMS)
+  const target = store.sessionTargetItems
+  const itemNumber = Math.min(store.sessionItemsDone + 1, target)
   const solutionVisible = hint !== null && session.hintLevel >= HINT_LADDER_LENGTH + 1
   const firstTryCount = session.steps.filter((r) => r.outcome === 'correct').length
 
@@ -161,9 +168,9 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
     <div className="exercise-view">
       <header className="exercise-header">
         <div className="session-progress">
-          {store.practiceMode === 'tables' ? 'Tafels · ' : ''}Opgave {itemNumber} van {SESSION_TARGET_ITEMS}
+          {store.practiceMode === 'tables' ? 'Tafels · ' : ''}Opgave {itemNumber} van {target}
           <span className="progress-dots" aria-hidden>
-            {Array.from({ length: SESSION_TARGET_ITEMS }, (_, i) => (
+            {Array.from({ length: target }, (_, i) => (
               <span
                 key={i}
                 className={`dot ${
@@ -290,7 +297,7 @@ export function ExerciseView({ store }: { store: LearnerStore }) {
                 ))}
               </ul>
               <button type="button" className="btn primary big" onClick={finish}>
-                {store.sessionItemsDone + 1 >= SESSION_TARGET_ITEMS ? 'Klaar! ✨' : 'Volgende opgave →'}
+                {store.sessionItemsDone + 1 >= target ? 'Klaar! ✨' : 'Volgende opgave →'}
               </button>
             </div>
           )}
@@ -354,6 +361,10 @@ function describeAnswerType(step: GeneratedStep): string {
       return 'uitkomst en rest'
     case 'digits':
       return 'cijfers per plek'
+    case 'choice':
+      return 'kies een knop'
+    case 'counts':
+      return 'aantal per munt of briefje'
     default:
       return 'korte tekst'
   }
@@ -361,7 +372,7 @@ function describeAnswerType(step: GeneratedStep): string {
 
 // ---- Typed answer inputs ----
 
-function StepInput({
+export function StepInput({
   step,
   exercise,
   value,
@@ -387,6 +398,47 @@ function StepInput({
   const mark = outcome ? ` checked-${outcome}` : ''
 
   switch (step.answerType.kind) {
+    case 'choice': {
+      // Buttons: the choice counts once she presses "Controleer" (or Enter),
+      // like every other answer, so a mis-tap is never evidence.
+      return (
+        <div className="choice-inputs" role="radiogroup" aria-label="Kies je antwoord">
+          {step.answerType.options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={value === option}
+              className={`choice-option ${value === option ? `selected${mark}` : ''}`}
+              onClick={() => onChange(option)}
+              onKeyDown={onKeyDown}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )
+    }
+    case 'counts': {
+      const map = (value && typeof value === 'object' ? value : {}) as Record<string, string | number>
+      return (
+        <div className="count-inputs">
+          {step.answerType.labels.map((label) => (
+            <label key={label} className="count-input">
+              <span>{label}</span>
+              <input
+                className={mark.trim()}
+                inputMode="numeric"
+                value={String(map[label] ?? '')}
+                onChange={(e) => onChange({ ...map, [label]: e.target.value })}
+                onKeyDown={onKeyDown}
+                aria-label={`Hoeveel van ${label}`}
+              />
+            </label>
+          ))}
+        </div>
+      )
+    }
     case 'digits': {
       const columns = (exercise.widget?.props.columns as string[]) ?? ['D', 'H', 'T', 'E']
       const map = (value as Record<string, string | number>) ?? {}

@@ -34,16 +34,19 @@ export interface FadeDecision {
 
 /** Successes (on distinct items) that fade S0→S1 and S1→S2. */
 export const SUPPORTED_FADE_STREAK = 2
-/** Successes (on distinct items) that fade S2→S3. */
-export const INDEPENDENT_FADE_STREAK = 3
+/** Independent successes (on distinct items) that move S2 to toetsvorm (S3). */
+export const INDEPENDENT_FADE_STREAK = 2
 
 /**
- * Fade ONE tier on the next fresh item.
+ * Fade ONE tier on the next fresh item. The path ends in the test format:
+ * S0 Samen → S1 Met hulp (brug) → S2 Zelf → S3 Toetsvorm
+ * (docs/test-readiness-plan.md §A).
  *  - S0→S1 and S1→S2: two first-attempt successes on two distinct items,
  *    without a revealed answer, so support fades within one session. The
  *    only way to find out whether she can do it alone is to let her try;
  *    a failure at S2 re-supports via decideReSupport.
- *  - S2→S3: three independent successes and Level 2.
+ *  - S2→S3: two independent successes. Passing a toetsvorm block is what
+ *    Level 2 requires, so S3 cannot wait for Level 2.
  * A recent comparable failure always blocks fading.
  */
 export function decideFade(state: LearnerSkillState): FadeDecision {
@@ -57,9 +60,6 @@ export function decideFade(state: LearnerSkillState): FadeDecision {
   if (sc.recentComparableFailures > 0) return { fade: false, nextTier: current, reason: 'recent-failure' }
 
   const next = TIER_ORDER[tierIndex(current) + 1]!
-  if (current === 'S2' && state.currentVerifiedLevel < 2) {
-    return { fade: false, nextTier: current, reason: 'needs-level-2' }
-  }
   return { fade: true, nextTier: next, reason: 'fade' }
 }
 

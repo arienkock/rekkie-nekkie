@@ -74,3 +74,27 @@ export function childStatusText(state: LearnerSkillState): string {
       return ''
   }
 }
+
+export type PathStage = 'nieuw' | 'met-hulp' | 'zelf' | 'toetsvorm' | 'onthouden'
+
+export const STAGE_LABELS: Record<PathStage, string> = {
+  nieuw: 'nog niet geoefend',
+  'met-hulp': 'met hulp',
+  zelf: 'zelf',
+  toetsvorm: 'toetsvorm',
+  onthouden: 'na een week nog',
+}
+
+/**
+ * Where a skill stands on the way to the test (docs/test-readiness-plan.md
+ * §G): practised with help, on her own, in test format, and still in test
+ * format after at least a week.
+ */
+export function pathStage(state: LearnerSkillState): PathStage {
+  if (state.exposureCount === 0) return 'nieuw'
+  const toetsvorm = state.coverage.some((c) => c.key === 'variation:toetsvorm' && c.independentSuccesses > 0)
+  if (toetsvorm && (state.memory.delayedSuccessGapsDays ?? []).some((g) => g >= 7)) return 'onthouden'
+  if (toetsvorm) return 'toetsvorm'
+  if (state.independentSuccessCount > 0) return 'zelf'
+  return 'met-hulp'
+}

@@ -1656,3 +1656,230 @@ main {
   text-align: center;
 }
 .multiplication-strategy p { font-size: 1.3rem; font-weight: 700; line-height: 1.5; }
+
+/* ---- Choice buttons and counts (blok 1–2 answer types) ---- */
+
+.choice-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice-option {
+  font: inherit;
+  font-weight: 650;
+  min-width: 52px;
+  padding: 8px 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.choice-option.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.choice-option.selected.checked-correct { border-color: var(--ok); background: var(--ok-soft); }
+.choice-option.selected.checked-incorrect { border-color: var(--warn); background: var(--warn-soft); }
+
+.count-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.count-input {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.count-input input {
+  font: inherit;
+  font-weight: 650;
+  width: 56px;
+  text-align: center;
+  padding: 6px 4px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+/* ---- Toetsvorm block ---- */
+
+.tier-badge.toetsvorm { background: #2f2a33; color: #fff; }
+
+.book-instruction { font-weight: 700; }
+
+.block-note { margin-top: -4px; }
+
+.block-items {
+  list-style: decimal;
+  padding-left: 1.6em;
+  margin: 12px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.block-item { padding: 6px 8px; border-radius: 10px; }
+.block-item.right { background: var(--ok-soft); }
+.block-item.wrong { background: var(--warn-soft); }
+.block-item.invalid { outline: 2px solid var(--warn); }
+
+.block-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.block-prompt { font-family: var(--mono); font-size: 1.05rem; }
+.block-answer .given { font-weight: 700; }
+.block-solution { font-size: 0.9rem; color: var(--text-soft); margin-top: 2px; }
+.block-score { font-weight: 700; font-size: 1.1rem; }
+.block-score.passed { color: var(--ok); }
+.block-score.not-passed { color: var(--warn); }
+
+/* ---- Leerpad ---- */
+
+.path-view .small, .muted.small { font-size: 0.85rem; }
+
+.path-lessons { padding: 8px 14px 14px; }
+
+.path-test {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+
+.lesson-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+
+.lesson {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.lesson.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.lesson.complete { background: var(--ok-soft); }
+
+.lesson-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.lesson-title { display: block; font-weight: 700; }
+.lesson-goal { display: block; font-size: 0.85rem; color: var(--text-soft); }
+
+.lesson-skills {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.lesson-skills li { display: flex; justify-content: space-between; gap: 8px; }
+
+.stage-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--surface-alt);
+  color: var(--text-soft);
+}
+
+.stage-met-hulp { background: var(--warn-soft); color: var(--warn); }
+.stage-zelf { background: var(--accent-soft); color: var(--accent); }
+.stage-toetsvorm { background: var(--ok-soft); color: var(--ok); }
+.stage-onthouden { background: var(--ok); color: #fff; }
+
+.maatwerk { border-color: var(--warn); }
+
+.proeftoets-results { width: 100%; border-collapse: collapse; margin: 10px 0; }
+.proeftoets-results th, .proeftoets-results td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.proeftoets-results tr.not-passed td:last-child { color: var(--warn); font-weight: 700; }
+.proeftoets-results tr.passed td:last-child { color: var(--ok); }
+
+/* ---- New widgets ---- */
+
+.svg-label.small { font-size: 12px; }
+
+.receipt {
+  font-family: var(--mono);
+  background: #fff;
+  border: 1px dashed var(--border-strong);
+  padding: 10px 14px;
+  width: min(280px, 100%);
+}
+
+.receipt-title { text-align: center; font-weight: 700; margin-bottom: 6px; }
+.receipt-row { display: flex; justify-content: space-between; gap: 12px; }
+.receipt-total { border-top: 1px dashed var(--border-strong); margin-top: 6px; padding-top: 4px; font-weight: 700; }
+
+.widget-svg.beaker { max-width: 200px; }
+.widget-svg.dial { max-width: 220px; }
+
+.calendar, .timetable, .split-table { border-collapse: collapse; font-size: 0.9rem; }
+.calendar caption { font-weight: 700; padding-bottom: 4px; }
+.calendar th, .calendar td { width: 2.2em; text-align: center; padding: 3px; border: 1px solid var(--border); }
+.calendar td.highlight { background: var(--accent); color: #fff; font-weight: 700; }
+.timetable th, .timetable td, .split-table th, .split-table td { padding: 4px 10px; border: 1px solid var(--border); text-align: center; }
+.timetable th[scope='row'] { text-align: left; }
+.split-table th { background: var(--surface-alt); }
+
+.coins { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.coins .coin, .coins .note {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.coins .coin { width: 46px; height: 46px; border-radius: 50%; background: #e8c96a; border: 2px solid #b8963a; }
+.coins .note { width: 74px; height: 40px; border-radius: 6px; background: #b7d7b0; border: 2px solid #6f9a66; }
+
+.bar-model { display: grid; gap: 4px; max-width: 460px; }
+.bar-model .bm-total { text-align: center; font-weight: 700; border-bottom: 2px solid var(--border-strong); }
+.bar-model .bm-parts { display: flex; gap: 3px; }
+
+.bar-model .bm-part {
+  display: inline-flex;
+  justify-content: center;
+  padding: 6px 8px;
+  background: var(--accent-soft);
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  font-weight: 650;
+}
+
+.bar-model .bm-unknown { background: var(--warn-soft); border-color: var(--warn); }
+
+.pyramid { display: grid; gap: 4px; justify-items: center; }
+.pyramid-row { display: flex; gap: 4px; }
+
+.pyramid .brick {
+  min-width: 56px;
+  padding: 6px 8px;
+  text-align: center;
+  font-weight: 700;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.pyramid .brick.empty { background: var(--surface-alt); }

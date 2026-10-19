@@ -65,11 +65,18 @@ function gateLevel1(state: LearnerSkillState): GateResult {
   return { level: 1, met: missing.length === 0, missing }
 }
 
+/** A toetsvorm block of this skill was passed (docs/test-readiness-plan.md §A). */
+export function passedToetsvorm(state: LearnerSkillState): boolean {
+  return state.coverage.some((c) => c.key === 'variation:toetsvorm' && c.independentSuccesses > 0)
+}
+
 /**
- * Level 2 — Independent Competency.
+ * Level 2 — Independent Competency, in the test's own format.
  * p ≥ .85; ≥5 qualifying independent opportunities over ≥2 visits separated
- * by ≥12h; ≥4 of latest 5 correct; ≥2 representations (one symbolic where
- * appropriate); no unresolved repeated misconception.
+ * by ≥12h; ≥4 of latest 5 correct; a passed toetsvorm block; no unresolved
+ * repeated misconception. (The toetsvorm block replaces the earlier "≥2
+ * representations": several skills have one honest representation, which
+ * made Level 2 unreachable, while the test format is what matters.)
  */
 function gateLevel2(state: LearnerSkillState): GateResult {
   const missing: string[] = []
@@ -78,8 +85,7 @@ function gateLevel2(state: LearnerSkillState): GateResult {
   if (state.independentOpportunityCount < 5) missing.push('opportunities')
   if (state.distinctVisitIds.length < 2 || !visitsSeparatedByHours(state, 12)) missing.push('visits-12h')
   if (window.length >= 5 && latestCorrectCount(window, 5) < 4) missing.push('recent-4-of-5')
-  const representations = new Set(window.slice(-12).map((e) => e.representation))
-  if (representations.size < 2) missing.push('representations')
+  if (!passedToetsvorm(state)) missing.push('toetsvorm')
   if (state.hasUnresolvedMisconception) missing.push('misconception')
   return { level: 2, met: missing.length === 0, missing }
 }

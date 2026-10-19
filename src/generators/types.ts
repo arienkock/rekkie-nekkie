@@ -21,6 +21,9 @@ export interface GeneratorContext {
   band: DifficultyBand
   purpose: PracticePurpose
   primarySkillId: SkillId
+  /** Optional item type within the skill, e.g. a practice test asking for
+   *  exactly the test page's form ('digit-value', 'type'). */
+  variant?: string
 }
 
 export type Generator = (ctx: GeneratorContext) => GeneratedExercise

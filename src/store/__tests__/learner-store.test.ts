@@ -4,42 +4,23 @@ import * as rngModule from '../../engine/rng'
 import { LearnerStore, SESSION_TARGET_ITEMS } from '../learner-store'
 import type { ExerciseSessionState, GeneratedExercise, GeneratedStep } from '../../domain/types'
 
-/** Derive the correct answer for a step from the exercise itself. */
-function solveAnswer(exercise: GeneratedExercise, step: GeneratedStep): string | number | Record<string, string | number> {
-  switch (step.answerType.kind) {
-    case 'digits': {
-      const n = exercise.widget?.props.number as number
-      const columns = (exercise.widget?.props.columns as string[]) ?? ['D', 'H', 'T', 'E']
-      const padded = String(n).padStart(columns.length === 3 ? 3 : 4, '0')
-      const out: Record<string, string> = {}
-      columns.forEach((c, i) => {
-        out[c] = padded[padded.length - columns.length + i]!
-      })
-      return out
-    }
-    case 'quotient-remainder': {
-      const m = step.solutionNl.match(/= (\d+), rest (\d+)/)
-      return { quotient: m![1]!, remainder: m![2]! }
-    }
-    case 'time':
-      return step.solutionNl // "08:20" — parseTimeAnswer accepts this
-    case 'money': {
-      const m = step.solutionNl.match(/= €(\d+),(\d{2})$/)
-      return `${m![1]},${m![2]}`
-    }
-    case 'integer': {
-      const nums = step.solutionNl.match(/\d+/g)
-      return Number(nums![nums!.length - 1])
-    }
-    default:
-      return step.solutionNl
-  }
+const DEFAULT_TABLES_FOR_TEST = [6, 7, 8, 9]
+
+/** Every step carries its canonical answer. */
+function solveAnswer(_exercise: GeneratedExercise, step: GeneratedStep): string | number | Record<string, string | number> {
+  return step.expected
 }
 
+/** Answer everything correctly: step by step, or a test-format block at once. */
 function solveAll(store: LearnerStore, session: ExerciseSessionState): void {
+  if (session.exercise.format === 'block') {
+    const check = store.submitBlock(Object.fromEntries(session.exercise.steps.map((s) => [s.id, s.expected])))
+    expect(check.invalid).toEqual([])
+    expect(Object.values(check.results).every((r) => r.isCorrect)).toBe(true)
+    return
+  }
   for (const step of session.exercise.steps) {
-    const answer = solveAnswer(session.exercise, step)
-    const validation = store.submitStepAnswer(step.id, answer)
+    const validation = store.submitStepAnswer(step.id, solveAnswer(session.exercise, step))
     expect(validation.isCorrect).toBe(true)
   }
 }
@@ -429,4 +410,119 @@ it('can advance from a fresh table to independent competency and transfer across
     seeds.mockRestore()
     vi.useRealTimers()
   }
+})
+
+describe('LearnerStore: test format, lessons and practice tests', () => {
+  /** Put a skill at toetsvorm (S3) so the next item for it is a block. */
+  function atToetsvorm(store: LearnerStore, skillId: string) {
+    const state = store.skillState(skillId)
+    state.scaffolding.currentTier = 'S3'
+    state.exposureCount = 6
+    state.masteryProbability = 0.8
+    store.snapshot.skills[skillId] = state
+  }
+
+  it('serves S3 as a test-format block: no hints, checked at once, blanks count as wrong', () => {
+    const store = new LearnerStore('blok', new MemoryDriver())
+    atToetsvorm(store, 'NUM.ROUND.Ten')
+    const session = store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-11' })!
+    // The lesson has four skills; find the block.
+    let s: ExerciseSessionState | null = session
+    while (s && s.exercise.primarySkillId !== 'NUM.ROUND.Ten') {
+      solveAll(store, s)
+      store.completeExercise()
+      s = store.nextExercise()
+    }
+    expect(s).not.toBeNull()
+    expect(s!.exercise.format).toBe('block')
+    expect(store.requestHint()).toMatch(/geen hulp/)
+    expect(s!.hintLevel).toBe(0)
+    const answers = Object.fromEntries(s!.exercise.steps.map((st) => [st.id, st.expected]))
+    // Leave the first one blank: wrong, but the rest still passes (5 of 6).
+    answers[s!.exercise.steps[0]!.id] = ''
+    const check = store.submitBlock(answers)
+    expect(check.invalid).toEqual([])
+    expect(check.results[s!.exercise.steps[0]!.id]!.isCorrect).toBe(false)
+    store.completeExercise()
+    const state = store.skillState('NUM.ROUND.Ten')
+    expect(state.coverage.find((c) => c.key === 'variation:toetsvorm')?.independentSuccesses).toBe(1)
+  })
+
+  it('unreadable notation in a block records nothing until it is fixed', () => {
+    const store = new LearnerStore('blok-invalid', new MemoryDriver())
+    atToetsvorm(store, 'MONEY.CALC.Add')
+    const session = store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-8' })!
+    let s: ExerciseSessionState | null = session
+    while (s && s.exercise.primarySkillId !== 'MONEY.CALC.Add') {
+      solveAll(store, s)
+      store.completeExercise()
+      s = store.nextExercise()
+    }
+    const answers = Object.fromEntries(s!.exercise.steps.map((st) => [st.id, st.expected]))
+    answers[s!.exercise.steps[0]!.id] = 'veel'
+    const check = store.submitBlock(answers)
+    expect(check.invalid).toEqual([s!.exercise.steps[0]!.id])
+    expect(s!.steps.every((r) => r.attemptCount === 0)).toBe(true)
+  })
+
+  it('a failed block goes back to practising on her own (S2)', () => {
+    const store = new LearnerStore('blok-fail', new MemoryDriver())
+    atToetsvorm(store, 'NUM.COMPARE.Symbols')
+    let s: ExerciseSessionState | null = store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-11' })
+    while (s && s.exercise.primarySkillId !== 'NUM.COMPARE.Symbols') {
+      solveAll(store, s)
+      store.completeExercise()
+      s = store.nextExercise()
+    }
+    store.submitBlock({})
+    store.completeExercise()
+    expect(store.skillState('NUM.COMPARE.Symbols').scaffolding.currentTier).toBe('S2')
+  })
+
+  it('a lesson session only serves that lesson’s skills', () => {
+    const store = new LearnerStore('les', new MemoryDriver())
+    let s = store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-6' })
+    const lessonSkills = new Set(['MONEY.VALUE.Denomination', 'MONEY.NOTATION.EuroCent', 'MONEY.PAY.Exact', 'MONEY.ROUND.WholeEuro'])
+    let served = 0
+    while (s) {
+      expect(lessonSkills.has(s.exercise.primarySkillId), s.exercise.primarySkillId).toBe(true)
+      solveAll(store, s)
+      store.completeExercise()
+      served++
+      s = store.nextExercise()
+    }
+    expect(served).toBe(SESSION_TARGET_ITEMS)
+  })
+
+  it('a general session follows the current blok’s lessons, starting at the first unfinished one', () => {
+    const store = new LearnerStore('path', new MemoryDriver())
+    const s = store.startSession()!
+    const window = new Set(['NUM.LINE.Position', 'PV.DHTE.Decompose', 'MUL.SCALE.OneFactor', 'MUL.SCALE.TwoFactors', 'MUL.ESTIMATE.Friendly', 'PV.SCALE.TenHundred', 'MUL.SPLIT.Distribute'])
+    expect(window.has(s.exercise.primarySkillId), s.exercise.primarySkillId).toBe(true)
+  })
+
+  it('runs a proeftoets in the book’s order and turns failed groups into maatwerk', () => {
+    const store = new LearnerStore('proef', new MemoryDriver())
+    let s = store.startSession('proeftoets', DEFAULT_TABLES_FOR_TEST, { proeftoetsId: 'proeftoets-blok-2' })
+    expect(store.sessionTargetItems).toBe(13)
+    const order: string[] = []
+    while (s) {
+      order.push(s.exercise.primarySkillId)
+      expect(s.exercise.format).toBe('block')
+      // Get the rounding groups wrong, everything else right.
+      const wrong = s.exercise.primarySkillId.startsWith('NUM.ROUND')
+      store.submitBlock(wrong ? {} : Object.fromEntries(s.exercise.steps.map((st) => [st.id, st.expected])))
+      store.completeExercise()
+      s = store.nextExercise()
+    }
+    expect(order[0]).toBe('PV.DHTE.Decompose')
+    expect(order[1]).toBe('NUM.ROUND.Ten')
+    expect(store.proeftoetsResults.filter((r) => !r.passed).map((r) => r.skillId)).toEqual(['NUM.ROUND.Ten', 'NUM.ROUND.Hundred'])
+    expect(store.snapshot.focusSkills).toEqual(['NUM.ROUND.Ten', 'NUM.ROUND.Hundred'])
+    // All wrong: more than half wrong → back to the bridge (S1).
+    expect(store.skillState('NUM.ROUND.Ten').scaffolding.currentTier).toBe('S1')
+    // Maatwerk is favoured in the next ordinary session.
+    const next = store.startSession()!
+    expect(['NUM.ROUND.Ten', 'NUM.ROUND.Hundred']).toContain(next.exercise.primarySkillId)
+  })
 })

@@ -41,6 +41,7 @@ export function generateRulerOffset(ctx: GeneratorContext): GeneratedExercise {
         solutionNl: `${endMm} − ${startMm} = ${target} mm`,
         skillTarget: { skillId: primary, role: 'primary' },
         revealsAnswer: true,
+        expected: target,
         validate: (answer) => {
           const v = parseIntAnswer(answer as string | number)
           if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf een heel getal in millimeters.', misconceptionId: null, invalidFormat: true }

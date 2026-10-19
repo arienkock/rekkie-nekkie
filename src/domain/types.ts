@@ -11,7 +11,7 @@
 // ---- Shared vocabulary ----
 
 export type SkillId = string
-export type ThemeId = 'optellen-aftrekken' | 'meten' | 'vermenigvuldigen-delen' | 'tijd-geld'
+export type ThemeId = 'optellen-aftrekken' | 'meten' | 'vermenigvuldigen-delen' | 'tijd-geld' | 'grafieken'
 
 export type MasteryLevel = 0 | 1 | 2 | 3 | 4
 
@@ -213,6 +213,10 @@ export type AnswerType =
   | { kind: 'quotient-remainder'; quotientUnit?: string; remainderUnit?: string }
   | { kind: 'digits'; length: number } // digit-by-digit entry (grids)
   | { kind: 'money'; unit: 'cent' | 'euro-comma' }
+  /** Pick one of the options (rendered as buttons); the answer is the option text. */
+  | { kind: 'choice'; options: string[] }
+  /** A count per labelled item (e.g. how many of each coin); the answer maps label → count. */
+  | { kind: 'counts'; labels: string[] }
 
 export interface GeneratedStep {
   id: string
@@ -226,6 +230,12 @@ export interface GeneratedStep {
   skillTarget: { skillId: SkillId; role: 'primary' | 'supporting' }
   /** Part of the answer that is revealed by full help. */
   revealsAnswer: boolean
+  /** The canonical correct answer, in the shape the input produces. Used by
+   *  the test-format block review and by tests that solve every generator. */
+  expected: ExerciseAnswer
+  /** A visual that belongs to this step only (test-format blocks keep each
+   *  item's own picture). */
+  widget?: WidgetSpec | null
 }
 
 export interface StepValidation {
@@ -239,7 +249,10 @@ export interface StepValidation {
 }
 
 export interface WidgetSpec {
-  type: 'multiplication-array' | 'dhte-grid' | 'number-line' | 'column-grid' | 'ruler' | 'clock' | 'division-groups' | 'money-tray'
+  type:
+    | 'multiplication-array' | 'dhte-grid' | 'number-line' | 'column-grid' | 'ruler' | 'clock'
+    | 'division-groups' | 'money-tray' | 'bar-chart' | 'line-chart' | 'receipt' | 'beaker'
+    | 'scale-dial' | 'calendar' | 'timetable' | 'coins' | 'bar-model' | 'pyramid' | 'split-table'
   props: Record<string, unknown>
 }
 
@@ -262,6 +275,9 @@ export interface GeneratedExercise {
   hintsNl?: string[]
   /** Canonical fingerprint for recent-pattern exclusion (e.g. "coladd:347+278"). */
   fingerprint: string
+  /** 'block': a test-format page of several items answered together and
+   *  checked at the end, without help (docs/test-readiness-plan.md §A). */
+  format?: 'item' | 'block'
 }
 
 // ---- Exercise session runtime ----
@@ -330,6 +346,8 @@ export interface LearnerPreferences {
   reducedMotion: boolean
   selectedTables?: number[]
   chosenTheme: ThemeId | null
+  /** The blok her class is working on; general sessions follow its lessons. */
+  currentBlokId?: string
 }
 
 export interface LearnerSnapshot {
@@ -349,6 +367,9 @@ export interface LearnerSnapshot {
   lastAppliedSequence: number
   /** Total exercises fully completed (defers excluded). */
   totalExercisesCompleted: number
+  /** Maatwerk: skills a practice test showed need work; favoured until they
+   *  pass a test-format block again. */
+  focusSkills?: SkillId[]
 }
 
 export const SCHEMA_VERSION = 1

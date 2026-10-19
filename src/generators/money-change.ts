@@ -5,31 +5,40 @@
  */
 import type { GeneratedExercise } from '../domain/types'
 import { formatMoney, parseMoneyCents } from '../domain/units'
+import { BOOK } from '../domain/book-wording'
+import { euro } from './kit'
 import { SeededRng } from '../engine/rng'
 import type { GeneratorContext } from './types'
 import { uniqueId } from './types'
 
 export function generateMoneyChange(ctx: GeneratorContext): GeneratedExercise {
   const rng = new SeededRng(ctx.seed)
+  // Book ranges (blok 2.2): change from € 2 and € 5 up to € 50 and € 100,
+  // prices in steps of 5 cent.
   const paidOptions =
-    ctx.band === 'easier' ? [200, 500] : ctx.band === 'standard' ? [500, 1000] : [1000, 2000]
+    ctx.band === 'easier' ? [200, 500] : ctx.band === 'standard' ? [500, 1000, 2000] : [2000, 5000, 10000]
   const paid = rng.pick(paidOptions)
-  const price = rng.int(Math.floor(paid / 4), Math.floor(paid / 2) - 20)
+  const price = rng.int(Math.ceil(paid / 20), Math.floor(paid * 0.95 / 5)) * 5
   const change = paid - price
 
   return {
     id: uniqueId(rng),
     archetypeId: 'change-calculation',
     seed: ctx.seed,
-    instructionNl: 'Je betaalt en krijgt wisselgeld terug. Reken vanaf de prijs tot aan het betaalde bedrag.',
+    instructionNl: ctx.tier === 'S2' || ctx.tier === 'S3'
+      ? BOOK.hoeveelTerug
+      : 'Je betaalt en krijgt wisselgeld terug. Reken vanaf de prijs tot aan het betaalde bedrag.',
     steps: [
       {
         id: 'change',
-        promptNl: `Je koopt iets voor ${formatMoney(price)} en betaalt met ${formatMoney(paid)}. Hoeveel wisselgeld krijg je terug?`,
+        promptNl: ctx.tier === 'S3'
+          ? `Het kost ${euro(price)}. Je betaalt met ${euro(paid)}. Je krijgt terug:`
+          : `Je koopt iets voor ${euro(price)} en betaalt met ${euro(paid)}. Hoeveel wisselgeld krijg je terug?`,
         answerType: { kind: 'money', unit: 'euro-comma' },
         solutionNl: `${formatMoney(paid)} − ${formatMoney(price)} = ${formatMoney(change)}`,
         skillTarget: { skillId: 'MONEY.CHANGE.Complement', role: 'primary' },
         revealsAnswer: true,
+        expected: `${Math.floor(change / 100)},${String(change % 100).padStart(2, '0')}`,
         validate: (answer) => {
           const v = parseMoneyCents(String(answer))
           if (v === null) {

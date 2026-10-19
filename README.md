@@ -20,6 +20,12 @@ Rekkie Nekkie is an interactive, client-side math learning and practice applicat
 
 ---
 
+## 🧭 Learning path (groep 6, blok 1–2)
+
+Every skill in the knowledge graph has exercises from guided practice up to
+the test format (*toetsvorm*), ordered by the lessons of the workbook, with
+practice tests per blok. See [docs/learning-path.md](docs/learning-path.md).
+
 ## 📚 Curriculum Documentation & Analysis
 
 The full curriculum for the four thematic units has been analyzed and cataloged:

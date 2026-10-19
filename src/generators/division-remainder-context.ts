@@ -5,6 +5,7 @@
  */
 import type { GeneratedExercise, GeneratedStep } from '../domain/types'
 import { SeededRng } from '../engine/rng'
+import { BOOK } from '../domain/book-wording'
 import { parseIntAnswer, uniqueId } from './types'
 import type { GeneratorContext } from './types'
 
@@ -59,15 +60,16 @@ function bookStory(rng: SeededRng, N: number, d: number, q: number, r: number): 
   }
 }
 
-function mkQuotientStep(p: RemainderProblem): GeneratedStep {
+function mkQuotientStep(p: RemainderProblem, bare = false): GeneratedStep {
   const { N, d, q, r } = p
   return {
     id: 'quotient',
-    promptNl: `Reken eerst uit: ${N} : ${d} = ? Vul de deling in met rest.`,
+    promptNl: bare ? `${N} : ${d} =` : `Reken eerst uit: ${N} : ${d} = ? Vul de deling in met rest.`,
     answerType: { kind: 'quotient-remainder' },
     solutionNl: `${N} : ${d} = ${q}, rest ${r}`,
     skillTarget: { skillId: 'DIV.REMAINDER.Compute', role: 'supporting' },
     revealsAnswer: false,
+    expected: { quotient: String(q), remainder: String(r) },
     validate: (answer) => {
       const a = answer as Record<string, string | number>
       const qAns = parseIntAnswer(String(a.quotient ?? ''))
@@ -98,14 +100,15 @@ export function generateDivisionRemainderContext(ctx: GeneratorContext): Generat
 
   // Pure computation item for DIV.REMAINDER.Compute.
   if (ctx.primarySkillId === 'DIV.REMAINDER.Compute') {
-    const quotientStep: GeneratedStep = { ...mkQuotientStep(p), skillTarget: { skillId: 'DIV.REMAINDER.Compute', role: 'primary' } }
+    const bookForm = ctx.tier === 'S2' || ctx.tier === 'S3'
+    const quotientStep: GeneratedStep = { ...mkQuotientStep(p, bookForm), skillTarget: { skillId: 'DIV.REMAINDER.Compute', role: 'primary' } }
     return {
       id: uniqueId(rng),
       archetypeId: 'division-remainder',
       seed: ctx.seed,
-      instructionNl: 'Delen met rest: het quotiënt is het aantal hele groepen, de rest is wat overblijft.',
+      instructionNl: bookForm ? BOOK.rekenUit : 'Delen met rest: het quotiënt is het aantal hele groepen, de rest is wat overblijft.',
       steps: [quotientStep],
-      widget: {
+      widget: ctx.tier === 'S3' ? null : {
         type: 'division-groups',
         props: {
           total: N,
@@ -146,6 +149,7 @@ export function generateDivisionRemainderContext(ctx: GeneratorContext): Generat
     solutionNl: `${N} : ${d} = ${q} rest ${r} → ${targetAnswer} ${story.unitNl}.`,
     skillTarget: { skillId: ctx.primarySkillId, role: 'primary' },
     revealsAnswer: true,
+    expected: targetAnswer,
     validate: (answer) => {
       const v = parseIntAnswer(answer as string | number)
       if (v === null) return { isCorrect: false, feedbackNl: 'Schrijf een heel getal.', misconceptionId: null, invalidFormat: true }
@@ -176,7 +180,9 @@ export function generateDivisionRemainderContext(ctx: GeneratorContext): Generat
     id: uniqueId(rng),
     archetypeId: 'remainder-word-problem',
     seed: ctx.seed,
-    instructionNl: 'Stappenplan: reken de deling uit, denk dan na over wat de rest betekent.',
+    instructionNl: ctx.tier === 'S2' || ctx.tier === 'S3'
+      ? BOOK.schrijfBerekening
+      : 'Stappenplan: reken de deling uit, denk dan na over wat de rest betekent.',
     steps,
     widget: {
       type: 'division-groups',

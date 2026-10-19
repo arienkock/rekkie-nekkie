@@ -14,6 +14,22 @@ import { generateMoneyChange } from './money-change'
 import { generateUnitConversion } from './unit-conversion'
 
 import { generateMultiplicationFacts, TABLES, isTableSkill } from './multiplication-facts'
+import { FACT_SKILLS, generateFacts } from './facts'
+import { PLACE_VALUE_SKILLS, generatePlaceValue } from './place-value'
+import { NUMBER_LINE_READ_SKILLS, generateNumberLineRead } from './number-line-read'
+import { ROUNDING_SKILLS, generateRounding } from './rounding'
+import { SUBTRACTION_COLUMN_SKILLS, generateColumnarSubtraction } from './columnar-subtraction'
+import { META_SKILLS, generateMeta } from './meta'
+import { MEASUREMENT_SKILLS, generateMeasurement } from './measurement'
+import { MULTIPLICATION_SKILLS, generateMultiplication } from './multiplication'
+import { DIVISION_MORE_SKILLS, generateDivisionMore } from './division-more'
+import { TIME_CALC_SKILLS, generateTimeCalc } from './time-calc'
+import { CALENDAR_SKILLS, generateCalendar } from './calendar'
+import { MONEY_SKILLS, generateMoney } from './money'
+import { GRAPH_SKILLS, generateGraphs } from './graphs'
+import { generateTestBlock } from './test-block'
+
+const family = (skills: string[], generator: Generator) => Object.fromEntries(skills.map((id) => [id, generator]))
 
 const REGISTRY: Record<string, Generator> = {
   ...Object.fromEntries(TABLES.map((n) => [`MUL.FACT.T${n}`, generateMultiplicationFacts])),
@@ -38,6 +54,22 @@ const REGISTRY: Record<string, Generator> = {
   'MEAS.MASS.Convert': generateUnitConversion,
   'MEAS.CAPACITY.Convert': generateUnitConversion,
   'MEAS.MIXED.ComposeSplit': generateUnitConversion,
+  'SUB.JUMP.NoBridge': generateNumberLineJumps,
+  'SUB.JUMP.TenBridge': generateNumberLineJumps,
+  'SUB.JUMP.HundredBridge': generateNumberLineJumps,
+  ...family(FACT_SKILLS, generateFacts),
+  ...family(PLACE_VALUE_SKILLS, generatePlaceValue),
+  ...family(NUMBER_LINE_READ_SKILLS, generateNumberLineRead),
+  ...family(ROUNDING_SKILLS, generateRounding),
+  ...family(SUBTRACTION_COLUMN_SKILLS, generateColumnarSubtraction),
+  ...family(META_SKILLS, generateMeta),
+  ...family(MEASUREMENT_SKILLS, generateMeasurement),
+  ...family(MULTIPLICATION_SKILLS, generateMultiplication),
+  ...family(DIVISION_MORE_SKILLS, generateDivisionMore),
+  ...family(TIME_CALC_SKILLS, generateTimeCalc),
+  ...family(CALENDAR_SKILLS, generateCalendar),
+  ...family(MONEY_SKILLS, generateMoney),
+  ...family(GRAPH_SKILLS, generateGraphs),
 }
 
 export const SUPPORTED_SKILLS: SkillId[] = Object.keys(REGISTRY)
@@ -67,8 +99,27 @@ export function validateGeneratedExercise(ex: GeneratedExercise): void {
   if (ex.steps.length === 0) throw new Error('Exercise has no steps')
   if (!ex.primarySkillId) throw new Error('Exercise missing primary skill')
   if (!ex.fingerprint) throw new Error('Exercise missing fingerprint')
+  const ids = new Set<string>()
   for (const step of ex.steps) {
     if (typeof step.validate !== 'function') throw new Error(`Step ${step.id} has no validator`)
     if (!step.skillTarget.skillId) throw new Error(`Step ${step.id} has no skill target`)
+    if (step.expected === undefined) throw new Error(`Step ${step.id} has no expected answer`)
+    if (ids.has(step.id)) throw new Error(`Duplicate step id ${step.id}`)
+    ids.add(step.id)
+    // The canonical answer must pass the step's own validator: an item whose
+    // stated solution is marked wrong would be unwinnable.
+    if (!step.validate(step.expected).isCorrect) throw new Error(`Step ${step.id}: expected answer does not validate`)
   }
+}
+
+/**
+ * A test-format block (toetsvorm) for a skill: several S3 items under one
+ * book instruction, checked together at the end without help.
+ */
+export function generateTestBlockFor(ctx: GeneratorContext, size?: number): GeneratedExercise {
+  const generator = REGISTRY[ctx.primarySkillId]
+  if (!generator) throw new Error(`No generator registered for ${ctx.primarySkillId}`)
+  const block = generateTestBlock(ctx, generator, size)
+  validateGeneratedExercise(block)
+  return block
 }

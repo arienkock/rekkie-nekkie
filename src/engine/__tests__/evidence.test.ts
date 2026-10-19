@@ -132,8 +132,11 @@ describe('evidence reducer', () => {
     // Two more visits on later days unlock the gate.
     state = independentCorrect('v2', 'e10', new Date('2024-09-02T10:00:00Z'))(state)
     state = independentCorrect('v3', 'e11', new Date('2024-09-03T10:00:00Z'))(state)
+    // Spaced visits alone are not enough: Level 2 means "can do it on the test".
+    expect(evaluatePromotion(state, [], new Date('2024-09-03T10:30:00Z')).newLevel).toBeLessThan(2)
     state = independentCorrect('v3', 'e12', new Date('2024-09-03T11:00:00Z'), {
-      representation: 'pictorial',
+      scaffold: 'S3',
+      variationTags: ['toetsvorm'],
     })(state)
     const promoted = evaluatePromotion(state, [], new Date('2024-09-03T12:00:00Z'))
     expect(promoted.newLevel).toBe(2)

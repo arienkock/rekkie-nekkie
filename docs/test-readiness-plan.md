@@ -205,6 +205,9 @@ segment, one *toetsvorm* block on a recent skill, and one mixed review block.
    With her profile, three sessions now cover 14 skills instead of cycling through 5.
 
    Still open: Level 2 requires two representations, but several generators only produce symbolic items at S2. So a skill like `ADD.JUMP.NoBridge` (18/19 correct) cannot reach Level 2 or S3. The *toetsvorm* work (step 2) should give each generator a second independent representation, or count *toetsvorm* as one.
+Steps 2–4 are done; see `learning-path.md` for what was built. Step 5 (paper
+mode, parent view beyond the stage badges) and step 6 are still open.
+
 2. **Toetsvorm block runner + book instruction wording** for the skills that already have generators: column addition, number line, ruler, clock, change, conversions. This immediately helps blok 1 review.
 3. **Blok 2 generators** (`blok-2-curriculum-plan.md`) built test-first: the *Zelf*/*Toetsvorm* form of each item group first, then *Brug*/*Samen*.
 4. **Proeftoets blok 2** + maatwerk routing, blok mode, test date.

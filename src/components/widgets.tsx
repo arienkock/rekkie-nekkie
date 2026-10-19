@@ -5,6 +5,7 @@
  * inputs, keeping a single evidence path.
  */
 import type { WidgetSpec } from '../domain/types'
+import { BarChart, BarModel, Beaker, CalendarMonth, Coins, LineChart, Pyramid, Receipt, ScaleDial, SplitTable, Timetable } from './widgets-extra'
 
 // ---- Dispatcher ----
 
@@ -15,15 +16,44 @@ export function ExerciseWidget({ widget }: { widget: WidgetSpec | null }) {
     case 'multiplication-array':
       return <MultiplicationArray rows={p.rows as number} columns={p.columns as number} split={p.split as number} mode={p.mode as 'array' | 'strategy'} />
     case 'dhte-grid':
-      return <DhteGrid columns={(p.columns as string[]) ?? ['D', 'H', 'T', 'E']} />
+      return <DhteGrid columns={(p.columns as string[]) ?? ['D', 'H', 'T', 'E']} rows={(p.rows as string[][]) ?? (p.digits ? [p.digits as string[]] : null)} />
     case 'number-line':
       return (
         <div className="widget-scroll">
-          <NumberLineWidget range={p.range as [number, number]} jumps={(p.jumps as Jump[]) ?? []} />
+          <NumberLineWidget
+            range={p.range as [number, number]}
+            jumps={(p.jumps as Jump[]) ?? []}
+            tickStep={p.tickStep as number | undefined}
+            labels={p.labels as number[] | undefined}
+            arrows={(p.arrows as Arrow[]) ?? []}
+            money={p.money === true}
+          />
         </div>
       )
     case 'column-grid':
-      return <ColumnGrid operation={(p.operation as string) ?? '+'} operands={(p.operands as number[]) ?? []} />
+      return <ColumnGrid operation={(p.operation as string) ?? '+'} operands={(p.operands as Array<number | string>) ?? []} />
+    case 'bar-chart':
+      return <BarChart title={p.title as string} labels={p.labels as string[]} values={p.values as number[]} max={p.max as number} gridStep={p.gridStep as number} />
+    case 'line-chart':
+      return <LineChart title={p.title as string} labels={p.labels as string[]} values={p.values as number[]} max={p.max as number} gridStep={p.gridStep as number} />
+    case 'receipt':
+      return <Receipt items={p.items as Array<{ name: string; cents: number }>} showTotal={p.showTotal === true} />
+    case 'beaker':
+      return <Beaker max={p.max as number} tickStep={p.tickStep as number} labelEvery={p.labelEvery as number | undefined} labels={p.labels as number[] | undefined} level={(p.level as number | null) ?? null} unit={(p.unit as string) ?? 'mL'} />
+    case 'scale-dial':
+      return <ScaleDial max={p.max as number} tickStep={p.tickStep as number} labelEvery={p.labelEvery as number} value={p.value as number} unit={(p.unit as string) ?? 'g'} />
+    case 'calendar':
+      return <CalendarMonth year={p.year as number} month={p.month as number} highlight={(p.highlight as number | null) ?? null} />
+    case 'timetable':
+      return <Timetable columns={p.columns as string[]} rows={p.rows as Array<{ stop: string; times: string[] }>} />
+    case 'coins':
+      return <Coins items={p.items as Array<{ value: number; count: number }>} />
+    case 'bar-model':
+      return <BarModel total={p.total as number | undefined} parts={p.parts as number[] | undefined} unknown={p.unknown as number | null | undefined} labels={p.labels as string[] | undefined} unknownLabel={p.unknownLabel as string | undefined} />
+    case 'pyramid':
+      return <Pyramid rows={p.rows as Array<Array<number | null>>} />
+    case 'split-table':
+      return <SplitTable factor={p.factor as number} parts={p.parts as number[]} />
     case 'ruler':
       return (
         <div className="widget-scroll">
@@ -56,7 +86,7 @@ const DHTE_LABELS: Record<string, { letter: string; name: string }> = {
   E: { letter: 'E', name: 'Eenheden' },
 }
 
-function DhteGrid({ columns }: { columns: string[] }) {
+function DhteGrid({ columns, rows }: { columns: string[]; rows: string[][] | null }) {
   return (
     <table className="dhte-grid">
       <thead>
@@ -67,13 +97,15 @@ function DhteGrid({ columns }: { columns: string[] }) {
         </tr>
       </thead>
       <tbody>
-        <tr>
-          {columns.map((c) => (
-            <td key={c} aria-label={DHTE_LABELS[c]?.letter ?? c}>
-              ?
-            </td>
-          ))}
-        </tr>
+        {(rows ?? [columns.map(() => '?')]).map((row, r) => (
+          <tr key={r}>
+            {columns.map((c, i) => (
+              <td key={c} aria-label={DHTE_LABELS[c]?.letter ?? c}>
+                {row[row.length - columns.length + i] ?? ''}
+              </td>
+            ))}
+          </tr>
+        ))}
       </tbody>
     </table>
   )
@@ -87,19 +119,37 @@ interface Jump {
   label: string
 }
 
-function NumberLineWidget({ range, jumps }: { range: [number, number]; jumps: Jump[] }) {
+interface Arrow {
+  value: number
+  label: string
+}
+
+const moneyLabel = (cents: number) => `€${Math.floor(cents / 100)},${String(cents % 100).padStart(2, '0')}`
+
+function NumberLineWidget({ range, jumps, tickStep, labels, arrows, money }: {
+  range: [number, number]
+  jumps: Jump[]
+  /** Explicit graduation (the book's lines); without it, a readable default. */
+  tickStep?: number
+  /** Only these ticks get a number; the rest must be worked out. */
+  labels?: number[]
+  arrows: Arrow[]
+  money?: boolean
+}) {
   const W = 640
-  const H = 130
+  const H = arrows.length > 0 ? 150 : 130
   const PAD = 36
   const [min, max] = range
   const x = (v: number) => PAD + ((v - min) / (max - min)) * (W - 2 * PAD)
 
   // Ticks at a readable interval (100s, or 50s for a narrow range).
   const span = max - min
-  const step = span > 600 ? 200 : span > 200 ? 100 : 50
+  const step = tickStep ?? (span > 600 ? 200 : span > 200 ? 100 : 50)
   const ticks: number[] = []
-  for (let v = min; v <= max; v += step) ticks.push(v)
+  for (let v = min; v <= max + 1e-9; v += step) ticks.push(Math.round(v))
   if (ticks[ticks.length - 1] !== max) ticks.push(max)
+  const showLabel = (t: number) => (labels ? labels.includes(t) : true)
+  const fmt = (v: number) => (money ? moneyLabel(v) : String(v))
 
   return (
     <svg className="widget-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Getallenlijn van ${min} tot ${max}`}>
@@ -107,8 +157,18 @@ function NumberLineWidget({ range, jumps }: { range: [number, number]; jumps: Ju
       {ticks.map((t) => (
         <g key={t}>
           <line x1={x(t)} y1={H - 46} x2={x(t)} y2={H - 34} stroke="currentColor" strokeWidth={1.5} />
-          <text x={x(t)} y={H - 14} textAnchor="middle" className="svg-label">
-            {t}
+          {showLabel(t) && (
+            <text x={x(t)} y={H - 14} textAnchor="middle" className="svg-label">
+              {fmt(t)}
+            </text>
+          )}
+        </g>
+      ))}
+      {arrows.map((a) => (
+        <g key={`${a.label}-${a.value}`} className="line-arrow">
+          <line x1={x(a.value)} y1={18} x2={x(a.value)} y2={H - 48} stroke="var(--accent)" strokeWidth={2} markerEnd="url(#arrow)" />
+          <text x={x(a.value)} y={14} textAnchor="middle" className="svg-label jump-label">
+            {a.label}
           </text>
         </g>
       ))}
@@ -144,9 +204,10 @@ function NumberLineWidget({ range, jumps }: { range: [number, number]; jumps: Ju
 
 // ---- 3. Columnar cijferen grid ----
 
-function ColumnGrid({ operation, operands }: { operation: string; operands: number[] }) {
+function ColumnGrid({ operation, operands }: { operation: string; operands: Array<number | string> }) {
   const width = Math.max(...operands.map((n) => String(n).length)) + 2
-  const fmt = (n: number) => String(n).padStart(width, ' ')
+  // Right-aligned, so money amounts keep their commas under each other.
+  const fmt = (n: number | string) => String(n).padStart(width, ' ')
   return (
     <div className="column-grid" aria-label={`Onder elkaar: ${operands.join(` ${operation} `)}`}>
       <pre>

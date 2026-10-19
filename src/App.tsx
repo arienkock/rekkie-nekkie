@@ -8,11 +8,15 @@ import { useLearnerStore } from './hooks/use-learner-store'
 import { useViewportFit } from './hooks/use-viewport-fit'
 import { ExerciseView } from './components/ExerciseView'
 import { ProgressView } from './components/ProgressView'
+import { PathView } from './components/PathView'
 import { DEFAULT_TABLES, TABLES } from './generators/multiplication-facts'
+import { DEFAULT_BLOK_ID } from './store/learner-store'
 import type { PracticeMode } from './store/learner-store'
 import type { LearnerStore } from './store/learner-store'
+import { LEARNING_PATH, currentLesson, lessonById } from './domain/learning-path'
+import { getSkill } from './domain/knowledge-graph'
 
-type View = 'home' | 'exercise' | 'progress' | 'settings'
+type View = 'home' | 'exercise' | 'progress' | 'path' | 'settings'
 
 export default function App() {
   const store = useLearnerStore()
@@ -32,12 +36,18 @@ export default function App() {
     document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false'
   }, [reducedMotion])
 
-  const start = (mode: PracticeMode = store.practiceMode) => {
+  const start = (mode: PracticeMode = store.practiceMode, options: { lessonId?: string; proeftoetsId?: string } = {}) => {
     if (store.currentSession && !window.confirm('Je sessie is nog niet klaar. Wil je een nieuwe sessie beginnen?')) return
     const selection = mode === 'tables' && tables.length === 0 ? store.selectedTables : tables
-    store.startSession(mode, selection)
+    const again = mode === 'lesson' ? { lessonId: options.lessonId ?? store.lessonId ?? undefined }
+      : mode === 'proeftoets' ? { proeftoetsId: options.proeftoetsId ?? store.proeftoets?.id }
+      : {}
+    store.startSession(mode, selection, again)
     setView('exercise')
   }
+
+  const blokId = store.snapshot.preferences.currentBlokId ?? DEFAULT_BLOK_ID
+  const nowLesson = currentLesson(blokId, store.snapshot.skills)
 
   const toggleTable = (table: number) => {
     const selected = tables.includes(table) ? tables.filter((n) => n !== table) : [...tables, table].sort((a, b) => a - b)
@@ -74,6 +84,9 @@ export default function App() {
           >
             Vandaag
           </button>
+          <button type="button" className="nav-link" aria-current={view === 'path' ? 'page' : undefined} onClick={() => setView('path')}>
+            Leerpad
+          </button>
           <button type="button" className="nav-link" aria-current={view === 'progress' ? 'page' : undefined} onClick={() => setView('progress')}>
             Voortgang
           </button>
@@ -93,7 +106,9 @@ export default function App() {
               </p>
               {store.currentSession && (
                 <div className="resume-practice">
-                  <p>Je bent bezig met {store.practiceMode === 'tables' ? `de tafels van ${store.selectedTables.join(', ')}` : 'rekenen'}.</p>
+                  <p>Je bent bezig met {store.practiceMode === 'tables' ? `de tafels van ${store.selectedTables.join(', ')}`
+                    : store.practiceMode === 'lesson' && store.lessonId ? lessonById(store.lessonId)?.titleNl
+                    : store.practiceMode === 'proeftoets' ? store.proeftoets?.titleNl : 'rekenen'}.</p>
                   <button type="button" className="btn primary" onClick={() => setView('exercise')}>
                     ▶ Ga verder met je sessie
                   </button>
@@ -103,7 +118,10 @@ export default function App() {
                 <section className="practice-choice">
                   <span className="practice-icon" aria-hidden>🧮</span>
                   <h2>Rekenen</h2>
-                  <p>Optellen, meten, delen, tijd en geld. Iets vertrouwds, iets nieuws en een puzzel.</p>
+                  <p>
+                    Volgt de lessen van je rekenboek{nowLesson ? <>: nu <strong>{nowLesson.titleNl}</strong></> : ''}.
+                    Eerst samen, dan zelf, dan zoals op de toets.
+                  </p>
                   <button type="button" className="btn primary big" onClick={() => start('curriculum')}>
                     {store.currentSession ? 'Nieuwe rekensessie' : 'Oefen rekenen'}
                   </button>
@@ -141,10 +159,18 @@ export default function App() {
           (store.currentSession ? (
             <ExerciseView key={store.currentSession.id} store={store} />
           ) : (
-            <SessionSummary store={store} onStart={() => start()} onProgress={() => setView('progress')} onHome={() => setView('home')} />
+            <SessionSummary store={store} onStart={() => start()} onProgress={() => setView('path')} onHome={() => setView('home')} />
           ))}
 
         {view === 'progress' && <ProgressView store={store} />}
+
+        {view === 'path' && (
+          <PathView
+            store={store}
+            onStartLesson={(lessonId) => start('lesson', { lessonId })}
+            onStartTest={(proeftoetsId) => start('proeftoets', { proeftoetsId })}
+          />
+        )}
 
         {view === 'settings' && <SettingsView store={store} />}
       </main>
@@ -173,6 +199,37 @@ function SessionSummary({
   const skipped = results.filter((r) => r.skipped).length
   const firsts = results.filter((r) => r.firstTimeSuccess)
 
+  if (store.practiceMode === 'proeftoets' && store.proeftoets && store.proeftoetsResults.length > 0) {
+    const passed = store.proeftoetsResults.filter((r) => r.passed).length
+    return (
+      <section className="session-summary">
+        <h2>{store.proeftoets.titleNl}: klaar! 📝</h2>
+        <p>
+          <strong>{passed}</strong> van de <strong>{store.proeftoetsResults.length}</strong> opdrachten gehaald (80% goed per opdracht).
+        </p>
+        <table className="proeftoets-results">
+          <thead><tr><th>Opdracht</th><th>Goed</th><th></th></tr></thead>
+          <tbody>
+            {store.proeftoetsResults.map((r, i) => (
+              <tr key={i} className={r.passed ? 'passed' : 'not-passed'}>
+                <td>{i + 1}. {getSkill(r.skillId).titleNl}</td>
+                <td>{r.correct} van {r.total}</td>
+                <td>{r.passed ? '✓' : `Maatwerk${r.maatwerkNl ? ` (boek ${r.maatwerkNl})` : ''}`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {passed < store.proeftoetsResults.length && (
+          <p className="muted">De opdrachten met maatwerk komen vaker terug bij Rekenen, tot je ze in toetsvorm goed hebt. Daarna: maak de proeftoets nog een keer.</p>
+        )}
+        <div className="btn-row">
+          <button type="button" className="btn primary" onClick={onProgress}>Naar het leerpad</button>
+          <button type="button" className="btn ghost" onClick={onHome}>Terug naar Vandaag</button>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="session-summary">
       <h2>Klaar voor vandaag! 🎉</h2>
@@ -200,7 +257,7 @@ function SessionSummary({
           Nog een sessie
         </button>
         <button type="button" className="btn" onClick={onProgress}>
-          Bekijk je voortgang
+          Bekijk het leerpad
         </button>
         <button type="button" className="btn ghost" onClick={onHome}>
           Terug naar Vandaag
@@ -380,6 +437,24 @@ function SettingsView({ store }: { store: LearnerStore }) {
             Laden
           </button>
         </details>
+      </div>
+
+      <div className="settings-card">
+        <h3>Welk blok heeft de klas nu?</h3>
+        <p className="muted">Rekenen volgt de lessen van dit blok. Eerdere blokken komen terug als herhaling.</p>
+        <div className="btn-row">
+          {LEARNING_PATH.map((blok) => (
+            <label key={blok.id} className="checkbox-row">
+              <input
+                type="radio"
+                name="current-blok"
+                checked={(store.snapshot.preferences.currentBlokId ?? DEFAULT_BLOK_ID) === blok.id}
+                onChange={() => store.savePreferences({ currentBlokId: blok.id })}
+              />
+              {blok.titleNl}
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="settings-card">

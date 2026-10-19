@@ -1,7 +1,8 @@
 /**
- * The complete initial KC inventory: 89 knowledge components with
+ * The KC inventory: the 89 initial knowledge components with
  * required-for-instruction prerequisite edges, transcribed from
- * docs/adaptive-learning-design.md §1.3 (tables A–E).
+ * docs/adaptive-learning-design.md §1.3 (tables A–E), plus 13 nodes mined
+ * from the groep 6 blok 2 workbook (docs/blok-2-curriculum-plan.md, F–G).
  *
  * Facts nodes (MUL.FACT.T1..T10) are parallel, not a ladder.
  * "related" links are undirected metadata and never DAG edges.
@@ -12,6 +13,7 @@ const OA: ThemeId = 'optellen-aftrekken'
 const MEAS: ThemeId = 'meten'
 const MD: ThemeId = 'vermenigvuldigen-delen'
 const TG: ThemeId = 'tijd-geld'
+const DATA: ThemeId = 'grafieken'
 
 /** Shared foundations live on bridges between islands. */
 const ALL_THEMES: ThemeId[] = [OA, MEAS, MD, TG]
@@ -362,6 +364,62 @@ export const KNOWLEDGE_GRAPH: KnowledgeGraphNode[] = [
     'Ik kan prijs, korting, tekort en wisselgeld uit elkaar houden.',
     'Distinguishes price, discount, amount available, shortfall, and change.',
     ['MONEY.CALC.Subtract', 'META.EQUATION.Select', 'META.ANSWER.Unit'], []),
+
+  // ---------- F. Groep 6 blok 2 (Getal & Ruimte Junior) ----------
+  node('NUM.COMPARE.Symbols', ALL_THEMES, 'number-compare', 'Groter of kleiner',
+    'Ik kan getallen tot 10 000 vergelijken met < en >.',
+    'Compares numbers to 10,000 by place value and writes < or >.',
+    ['PV.DHTE.Identify'], ['same-digits']),
+  node('NUM.ROUND.Thousand', ALL_THEMES, 'rounding', 'Afronden op duizendtallen',
+    'Ik kijk naar het honderdtal om af te ronden op duizendtallen.',
+    'Rounds to the nearest thousand by looking at the hundreds digit.',
+    ['NUM.ROUND.Hundred'], []),
+  node('NUM.SEQ.Step', [OA], 'number-sequence', 'Tel verder',
+    'Ik zie welke stap erbij komt of eraf gaat en tel verder.',
+    'Finds the constant step of a sequence and continues it, also descending.',
+    ['PV.DHTE.Compose', 'ADD.JUMP.HundredBridge'], ['descending']),
+  node('META.INSTRUCTION.Read', ALL_THEMES, 'meta', 'Wat moet ik doen?',
+    'Ik weet wat een opdracht vraagt voordat ik ga rekenen.',
+    'Maps a workbook instruction to the procedure it asks for.',
+    [], []),
+  node('MUL.ESTIMATE.Friendly', [MD], 'mul-estimate', 'Schatten met passende getallen',
+    'Ik kan 92 × 25 schatten met getallen waarmee ik makkelijk reken.',
+    'Estimates a product with compatible numbers and judges more/less than a benchmark.',
+    ['NUM.ROUND.Ten', 'NUM.ROUND.Hundred', 'MUL.SCALE.TwoFactors'], ['more-or-less']),
+  node('MUL.COLUMN.TensFactor', [MD], 'mul-column', 'Keer een tiental onder elkaar',
+    'Ik kan 40 × 56 onder elkaar uitrekenen en schrijf eerst de tiental-nul op.',
+    'Multiplies a two-digit number by a multiple of ten in columns, writing the tens zero first.',
+    ['MUL.COLUMN.Carry', 'MUL.SCALE.OneFactor'], ['carry']),
+  node('MUL.CONTEXT.FourStep', [MD], 'mul-context', 'Keersommen in verhaaltjes',
+    'Ik vind de keersom in een verhaal, schat eerst en controleer mijn antwoord.',
+    'Selects and solves a multiplication from a story with the 4-step plan, checking against an estimate.',
+    ['MUL.ESTIMATE.Friendly', 'META.EQUATION.Select', 'META.CHECK.EstimateInverse'], ['two-step']),
+  node('MONEY.ROUND.WholeEuro', [TG], 'money', "Afronden op hele euro's",
+    "Ik weet tussen welke hele euro's een bedrag ligt en rond af.",
+    'Places an amount between whole euros and rounds at the 50-cent boundary.',
+    ['MONEY.NOTATION.EuroCent', 'NUM.ROUND.Ten'], ['between']),
+  node('MONEY.ESTIMATE.Total', [TG], 'money', 'Ongeveer hoeveel samen?',
+    "Ik kan een kassabon schatten door af te ronden op hele euro's.",
+    'Estimates a total by rounding each amount to whole euros.',
+    ['MONEY.ROUND.WholeEuro', 'ADD.JUMP.TenBridge'], []),
+  node('MONEY.CONTEXT.Budget', [TG], 'money-context', 'Heb ik genoeg?',
+    'Ik kan uitrekenen of mijn geld genoeg is en hoeveel ik overhoud.',
+    'Decides whether money suffices and computes what is left or still needed.',
+    ['MONEY.ESTIMATE.Total', 'MONEY.CALC.Add', 'META.EQUATION.Select'], ['not-enough']),
+
+  // ---------- G. Grafieken ----------
+  node('DATA.GRAPH.ReadBar', [DATA], 'graphs', 'Staafgrafiek aflezen',
+    'Ik kan in een staafgrafiek aflezen hoeveel het is, ook tussen twee streepjes.',
+    'Reads a bar value against a scaled axis, including between gridlines.',
+    ['MEAS.SCALE.Interval', 'NUM.LINE.Position'], ['between-gridlines']),
+  node('DATA.GRAPH.ReadLine', [DATA], 'graphs', 'Lijngrafiek aflezen',
+    'Ik kan een lijngrafiek per week of per jaar aflezen.',
+    'Reads the value of a line graph at a given point.',
+    ['DATA.GRAPH.ReadBar'], []),
+  node('DATA.GRAPH.Compare', [DATA], 'graphs', 'Vragen bij een grafiek',
+    'Ik kan de hoogste en laagste vinden, het verschil uitrekenen en alles optellen.',
+    'Answers max/min, difference, total, and complement questions about a graph.',
+    ['DATA.GRAPH.ReadBar', 'REL.ADD.Inverse'], ['difference']),
 ]
 
 export const SKILL_INDEX: ReadonlyMap<SkillId, KnowledgeGraphNode> = new Map(
@@ -392,4 +450,5 @@ export const THEME_META: Record<ThemeId, { titleNl: string; emoji: string }> = {
   meten: { titleNl: 'Meten', emoji: '📏' },
   'vermenigvuldigen-delen': { titleNl: 'Vermenigvuldigen & delen', emoji: '✖️' },
   'tijd-geld': { titleNl: 'Tijd en geld', emoji: '🕐' },
+  grafieken: { titleNl: 'Grafieken', emoji: '📊' },
 }
