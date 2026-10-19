@@ -15,6 +15,10 @@ dist-ssr
 # Local reference images - never commit these
 reference-images/
 
+# Workbook photos and learner progress exports - personal, never commit
+blok-*/
+*-voortgang.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
