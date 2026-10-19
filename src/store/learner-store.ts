@@ -28,7 +28,7 @@ import { deriveFreshness } from '../engine/memory'
 import { randomSeed, SeededRng } from '../engine/rng'
 import { chooseStartTier, decideFade, decideReSupport, tierIndex } from '../engine/scaffolding'
 import { selectNextSkill } from '../engine/selector'
-import { generateExercise, CURRICULUM_SKILLS } from '../generators'
+import { generateExercise, CURRICULUM_SKILLS, SUPPORTED_SKILLS } from '../generators'
 import {
   canonicalStringify,
   checksumOf,
@@ -91,6 +91,9 @@ export class LearnerStore {
   sessionResults: SessionResult[] = []
   /** Primary skills of the last few served items (selector anti-repetition). */
   sessionRecentSkills: SkillId[] = []
+  /** After a revealed answer: serve one fresh item of the same skill and
+   *  tier next ("Nu jij"), so a reveal never ends the practice. */
+  private pendingSibling: { skillId: SkillId; tier: ScaffoldTier } | null = null
   lastSelectionExplanation = ''
   /** True when the last checkpoint save failed (visible recovery path). */
   saveFailed = false
@@ -216,6 +219,7 @@ export class LearnerStore {
     this.sessionItemsDone = 0
     this.sessionResults = []
     this.sessionRecentSkills = []
+    this.pendingSibling = null
     return this.nextExercise()
   }
 
@@ -226,10 +230,20 @@ export class LearnerStore {
       this.notify()
       return null
     }
-    const selection = selectNextSkill(
+    const sibling = this.pendingSibling
+    this.pendingSibling = null
+    const selection = sibling ? {
+      skillId: sibling.skillId,
+      purpose: 'growth' as const,
+      explanationNl: 'Nu jij: eentje zoals net, maar dan zelf.',
+    } : selectNextSkill(
       {
-        skills: { supported: this.practiceMode === 'tables'
-          ? this.selectedTables.map((n) => `MUL.FACT.T${n}`) : CURRICULUM_SKILLS, states: this.snapshot.skills },
+        skills: {
+          supported: this.practiceMode === 'tables'
+            ? this.selectedTables.map((n) => `MUL.FACT.T${n}`) : CURRICULUM_SKILLS,
+          states: this.snapshot.skills,
+          practisable: SUPPORTED_SKILLS,
+        },
         recentPurposes: this.sessionItemPurposes as never[],
         recentSkillIds: this.sessionRecentSkills,
         now: new Date(),
@@ -252,8 +266,9 @@ export class LearnerStore {
     // reduces support below the fade ladder's current tier.
     const startTier = chooseStartTier(state)
     const managedTier = state.scaffolding.currentTier
-    const tier: ScaffoldTier =
-      state.exposureCount === 0
+    const tier: ScaffoldTier = sibling
+      ? sibling.tier
+      : state.exposureCount === 0
         ? 'S0'
         : tierIndex(startTier) > tierIndex(managedTier)
           ? startTier
@@ -331,6 +346,7 @@ export class LearnerStore {
           ? EVIDENCE_WEIGHTS.scaffoldedPrediction
           : EVIDENCE_WEIGHTS.independent,
       lastSavedAt: null,
+      isSibling: sibling !== null,
     }
     this.sessionItemPurposes.push(exercise.purpose)
     this.sessionRecentSkills = [...this.sessionRecentSkills, exercise.primarySkillId].slice(-3)
@@ -523,7 +539,12 @@ export class LearnerStore {
       const sc = applied.state.scaffolding
       if (primaryCorrect && eligibility.weight > 0) {
         const fade = decideFade(applied.state)
-        if (fade.fade) sc.currentTier = fade.nextTier
+        if (fade.fade) {
+          sc.currentTier = fade.nextTier
+          // The new tier must earn its own streak; the distinct item ids stay
+          // as Level 1 evidence.
+          sc.qualifyingSuccessStreak = 0
+        }
       } else if (!primaryCorrect) {
         sc.currentTier = decideReSupport(applied.state)
       }
@@ -546,6 +567,11 @@ export class LearnerStore {
 
     this.sessionItemsDone += 1
     this.currentSession = null
+    // A reveal is followed by one sibling item, but a revealed sibling is not,
+    // so help can never trap her in a loop of the same skill.
+    if (revealed && applied && !session.isSibling) {
+      this.pendingSibling = { skillId: ex.primarySkillId, tier: session.currentScaffold }
+    }
 
     // Freshness is derived state (docs §5.3.2): recompute after committing
     // evidence so the dashboard reflects this visit's practice immediately

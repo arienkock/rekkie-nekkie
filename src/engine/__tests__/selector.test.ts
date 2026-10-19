@@ -3,7 +3,7 @@
  * Session composition must spread practice instead of starving skills.
  */
 import { describe, expect, it } from 'vitest'
-import { selectNextSkill } from '../selector'
+import { effectivePrerequisites, isReady, selectNextSkill } from '../selector'
 import { newSkillState } from '../evidence'
 import { SUPPORTED_SKILLS } from '../../generators'
 import type { LearnerSkillState, SkillId } from '../../domain/types'
@@ -71,5 +71,47 @@ describe('problem selector', () => {
     for (let i = 0; i < 10; i++) {
       expect(selectNextSkill(ctx(states), () => 0.1)).not.toBeNull()
     }
+  })
+
+  it('looks through prerequisites that cannot be practised', () => {
+    const practisable = new Set<SkillId>(SUPPORTED_SKILLS)
+    // PV.DHTE.Identify has no generator; Decompose has nothing practisable above it.
+    expect(effectivePrerequisites('PV.DHTE.Decompose', practisable)).toEqual([])
+    // ADD.JUMP.TenBridge → PV.DHTE.Exchange (no generator) → PV.DHTE.Decompose.
+    expect(effectivePrerequisites('ADD.JUMP.TenBridge', practisable).sort())
+      .toEqual(['ADD.JUMP.NoBridge', 'PV.DHTE.Decompose'])
+    const states = freshStates()
+    expect(isReady('PV.DHTE.Decompose', states, new Date())).toBe(false)
+    expect(isReady('PV.DHTE.Decompose', states, new Date(), practisable)).toBe(true)
+  })
+
+  it('rests a skill with four recent independent successes', () => {
+    const now = new Date()
+    const states = freshStates()
+    const strong = states['ADD.JUMP.NoBridge']!
+    strong.exposureCount = 1
+    strong.masteryProbability = 0.75
+    strong.scaffolding.currentTier = 'S2'
+    strong.independentGateWindow = Array.from({ length: 4 }, (_, i) => ({
+      exerciseId: `ex-${i}`, visitId: 'v', at: new Date(now.getTime() - i * 60_000).toISOString(),
+      correct: true, transfer: false, inverse: false, efficientStrategy: true,
+      representation: 'symbolic' as const, variationTags: [],
+    }))
+    for (let i = 0; i < 30; i++) {
+      expect(selectNextSkill(ctx(states), () => 0.5)!.skillId).not.toBe('ADD.JUMP.NoBridge')
+    }
+  })
+
+  it('does not offer a review during the cooldown after a refresh', () => {
+    const now = new Date()
+    const states = freshStates()
+    const s = states['MEAS.RULER.Offset']!
+    s.exposureCount = 10
+    s.currentVerifiedLevel = 1
+    s.memory.reviewDueAt = new Date(now.getTime() - 5 * 86_400_000).toISOString()
+    s.memory.lastMemoryRefreshAt = now.toISOString()
+    s.memory.reviewNotBeforeAt = new Date(now.getTime() + 86_400_000).toISOString()
+    const result = selectNextSkill(ctx(states), () => 0.5)!
+    expect(result.purpose).not.toBe('review')
   })
 })

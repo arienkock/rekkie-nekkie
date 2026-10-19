@@ -161,6 +161,26 @@ describe('LearnerStore end-to-end learning loop', () => {
     expect(store.skillState(skillId).memory.reviewDueAt).not.toBeNull()
   })
 
+  it('follows a revealed answer with one fresh item of the same skill and tier ("Nu jij")', () => {
+    const store = new LearnerStore('sibling', new MemoryDriver())
+    const first = store.startSession()!
+    for (let i = 0; i < 4; i++) store.requestHint()
+    for (const step of first.exercise.steps) store.submitStepAnswer(step.id, solveAnswer(first.exercise, step))
+    store.completeExercise()
+
+    const sibling = store.nextExercise()!
+    expect(sibling.isSibling).toBe(true)
+    expect(sibling.exercise.primarySkillId).toBe(first.exercise.primarySkillId)
+    expect(sibling.currentScaffold).toBe(first.currentScaffold)
+    expect(sibling.exercise.fingerprint).not.toBe(first.exercise.fingerprint)
+
+    // Revealing the sibling too does not chain another sibling.
+    for (let i = 0; i < 4; i++) store.requestHint()
+    for (const step of sibling.exercise.steps) store.submitStepAnswer(step.id, solveAnswer(sibling.exercise, step))
+    store.completeExercise()
+    expect(store.nextExercise()!.isSibling).toBe(false)
+  })
+
   it('supported S0 work refreshes memory but does not start a review schedule', () => {
     const driver = new MemoryDriver()
     const store = new LearnerStore('supported', driver)

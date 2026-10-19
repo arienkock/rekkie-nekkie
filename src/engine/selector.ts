@@ -12,10 +12,20 @@ import { memoryAvailability, predictCorrect } from './bkt'
 import { reviewEligibility } from './memory'
 
 export interface SelectorSkills {
-  /** Skills that have a generator archetype available. */
+  /** Skills that may be served in this session. */
   supported: SkillId[]
   states: Record<SkillId, LearnerSkillState>
+  /** Skills that can be practised at all (have a generator). Prerequisites
+   *  outside this set can never be demonstrated, so readiness looks through
+   *  them to their practisable ancestors. Omitted: every skill counts. */
+  practisable?: SkillId[]
 }
+
+/** A skill with this many independent successes in the last
+ *  SATURATION_WINDOW_HOURS rests until a later visit: more of the same
+ *  cannot satisfy the spacing gates, and it starves everything else. */
+export const SATURATION_SUCCESSES = 4
+export const SATURATION_WINDOW_HOURS = 12
 
 export interface Candidate {
   skillId: SkillId
@@ -40,13 +50,44 @@ export function availableKnowledge(state: LearnerSkillState | undefined, now: Da
   return state.masteryProbability * R
 }
 
-/** Readiness: every declared parent at Level ≥ 1 with availability ≥ 0.55. */
-export function isReady(skillId: SkillId, states: Record<SkillId, LearnerSkillState>, now: Date): boolean {
-  return getSkill(skillId).prerequisites.every((p) => {
+/**
+ * Prerequisites as the learner can actually demonstrate them: a parent
+ * without a generator is replaced by its own (recursively resolved)
+ * prerequisites, so an unpractisable node never blocks its children forever.
+ */
+export function effectivePrerequisites(skillId: SkillId, practisable?: ReadonlySet<SkillId>): SkillId[] {
+  if (!practisable) return getSkill(skillId).prerequisites
+  const out = new Set<SkillId>()
+  const visit = (id: SkillId) => {
+    for (const p of getSkill(id).prerequisites) {
+      if (practisable.has(p)) out.add(p)
+      else visit(p)
+    }
+  }
+  visit(skillId)
+  return [...out]
+}
+
+/** Readiness: every effective parent at Level ≥ 1 with availability ≥ 0.55. */
+export function isReady(
+  skillId: SkillId,
+  states: Record<SkillId, LearnerSkillState>,
+  now: Date,
+  practisable?: ReadonlySet<SkillId>,
+): boolean {
+  return effectivePrerequisites(skillId, practisable).every((p) => {
     const ps = states[p]
     if (!ps) return false
     return ps.currentVerifiedLevel >= 1 && availableKnowledge(ps, now) >= 0.55
   })
+}
+
+/** True when the skill has had enough independent success recently. */
+export function isSaturated(state: LearnerSkillState | undefined, now: Date): boolean {
+  if (!state) return false
+  const since = now.getTime() - SATURATION_WINDOW_HOURS * 3_600_000
+  const recent = state.independentGateWindow.filter((e) => e.correct && new Date(e.at).getTime() >= since)
+  return recent.length >= SATURATION_SUCCESSES
 }
 
 export interface SelectionContext {
@@ -73,6 +114,7 @@ export interface SelectionResult {
 export function selectNextSkill(ctx: SelectionContext, rand: () => number): SelectionResult | null {
   const { skills, recentPurposes, now } = ctx
   const eligible = skills.supported
+  const practisable = skills.practisable ? new Set(skills.practisable) : undefined
 
   // --- Review pool: due reviews among supported skills ---
   const reviewCandidates: Candidate[] = []
@@ -93,8 +135,13 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
         )
       : 1
     const predicted = predictCorrect(p, R, tier, band)
-    const ready = isReady(id, skills.states, now)
-    const { due, gapSinceRefreshDays } = state ? reviewEligibility(state.memory, now) : { due: false, gapSinceRefreshDays: 0 }
+    const ready = isReady(id, skills.states, now, practisable)
+    const saturated = isSaturated(state, now)
+    // A refresh since the due date starts a cooldown (reviewNotBeforeAt): a
+    // review inside it could never qualify, so it is not due for selection.
+    const eligibility = state ? reviewEligibility(state.memory, now) : null
+    const due = eligibility !== null && eligibility.due && eligibility.notBeforeArrived
+    const gapSinceRefreshDays = eligibility?.gapSinceRefreshDays ?? 0
     const overdueDays = due ? Math.max(0, gapSinceRefreshDays - state!.memory.intervalDays) : 0
 
     if (state && due && state.currentVerifiedLevel >= 1) {
@@ -104,7 +151,13 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
         explanationNl: 'Je hebt dit een tijdje niet gebruikt. Even opfrissen!',
       })
     }
-    if (ready && state && state.currentVerifiedLevel < 3) {
+    // A saturated skill still gets due reviews, but no growth/teach-first slots.
+    if (saturated) continue
+    // Readiness gates the *introduction* of a skill. Once introduced, it keeps
+    // its growth slot even if a parent has not yet been verified: school
+    // teaches it regardless, and without practice its support never fades.
+    const introduced = state !== undefined && state.exposureCount > 0
+    if ((ready || introduced) && state && state.currentVerifiedLevel < 3) {
       growthCandidates.push({
         skillId: id, purpose: 'growth', predictedCorrect: predicted, ready, overdueDays,
         score: 0, scoreTerms: {}, reason: 'zpd-growth',
@@ -170,6 +223,13 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
     const anyFresh = allPools.filter((c) => !ctx.recentSkillIds.includes(c.skillId))
     pool = anyFresh.length > 0 ? anyFresh : chosenPool
   }
+  // New skills always compete for growth slots; without them the skills
+  // already introduced would cycle through the recency window forever.
+  if (purpose === 'growth') {
+    const inPool = new Set(pool.map((c) => c.skillId))
+    pool = [...pool, ...teachFirstCandidates.filter((c) =>
+      !inPool.has(c.skillId) && !ctx.recentSkillIds.includes(c.skillId))]
+  }
 
   // --- ZPD scoring ---
   const zpdFit = (pred: number, purpose: PracticePurpose): number => {
@@ -180,10 +240,12 @@ export function selectNextSkill(ctx: SelectionContext, rand: () => number): Sele
 
   const scored: Candidate[] = pool.map((c) => {
     const state = skills.states[c.skillId]
-    // Evidence need decays with ANY meaningful opportunity (scaffolded or
-    // independent): a skill the learner has practiced a lot needs less
-    // evidence than a fresh one, so strong skills stop dominating selection.
-    const evidenceNeed = state ? 1 - Math.min(1, state.meaningfulOpportunityCount / 8) : 1
+    // Evidence need decays with every item served (scaffolded, independent or
+    // revealed): a skill the learner has practiced a lot needs less evidence
+    // than a fresh one, so strong skills stop dominating selection. Counting
+    // only meaningful opportunities let skills whose answers were revealed
+    // look permanently fresh, and they were served again and again.
+    const evidenceNeed = state ? 1 - Math.min(1, state.exposureCount / 8) : 1
     const learnerIntent = ctx.intentSkill === c.skillId ? 1 : 0.2
     const reviewUrgency = Math.min(1, c.overdueDays / 7)
     const zpd = zpdFit(c.predictedCorrect, c.purpose)

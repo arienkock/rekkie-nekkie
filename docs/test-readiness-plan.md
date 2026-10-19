@@ -194,7 +194,17 @@ segment, one *toetsvorm* block on a recent skill, and one mixed review block.
 
 ## Order of work
 
-1. **Engine fixes**: readiness ignoring prerequisites without a generator, fading within a session, sibling item after a reveal, no whole sessions on mastered skills. Small changes, and the data shows the biggest problem is here.
+1. **Engine fixes — done.** Replaying her export through the selector found more causes than the ones above:
+   - **Readiness looks through prerequisites without a generator.** A skill she has already been introduced to keeps its growth slot. New skills always compete for growth slots.
+   - **Evidence need decays with every item served.** It used to decay only with *meaningful* opportunities. Revealed items never counted, so the clock skills she kept revealing looked permanently "fresh" and were served again and again.
+   - **A review respects the cooldown after a refresh.** An overdue skill that was practised outside a review stayed "due" all session, but the review could never count, so it was served over and over.
+   - **Skills rest after ≥ 4 independent successes in 12 h** (saturation).
+   - **S0→S1→S2 fade after two successes on distinct items**, without a belief threshold. S2→S3 still needs Level 2.
+   - **A revealed answer is followed by one "Nu jij" sibling item.**
+
+   With her profile, three sessions now cover 14 skills instead of cycling through 5.
+
+   Still open: Level 2 requires two representations, but several generators only produce symbolic items at S2. So a skill like `ADD.JUMP.NoBridge` (18/19 correct) cannot reach Level 2 or S3. The *toetsvorm* work (step 2) should give each generator a second independent representation, or count *toetsvorm* as one.
 2. **Toetsvorm block runner + book instruction wording** for the skills that already have generators: column addition, number line, ruler, clock, change, conversions. This immediately helps blok 1 review.
 3. **Blok 2 generators** (`blok-2-curriculum-plan.md`) built test-first: the *Zelf*/*Toetsvorm* form of each item group first, then *Brug*/*Samen*.
 4. **Proeftoets blok 2** + maatwerk routing, blok mode, test date.

@@ -32,26 +32,31 @@ export interface FadeDecision {
   reason: string
 }
 
+/** Successes (on distinct items) that fade S0→S1 and S1→S2. */
+export const SUPPORTED_FADE_STREAK = 2
+/** Successes (on distinct items) that fade S2→S3. */
+export const INDEPENDENT_FADE_STREAK = 3
+
 /**
- * Fade ONE tier on the next fresh item, after:
- *  - ≥3 meaningful first-attempt successes across ≥2 items,
- *  - no conceptual hint in the last two attempts,
- *  - at least one prediction/model-to-symbol explanation.
- * S1→S2 additionally requires p(L) ≥ .75; S2→S3 requires Level 2.
+ * Fade ONE tier on the next fresh item.
+ *  - S0→S1 and S1→S2: two first-attempt successes on two distinct items,
+ *    without a revealed answer, so support fades within one session. The
+ *    only way to find out whether she can do it alone is to let her try;
+ *    a failure at S2 re-supports via decideReSupport.
+ *  - S2→S3: three independent successes and Level 2.
+ * A recent comparable failure always blocks fading.
  */
 export function decideFade(state: LearnerSkillState): FadeDecision {
   const sc = state.scaffolding
   const current = sc.currentTier
   if (current === 'S3') return { fade: false, nextTier: current, reason: 'already-transfer' }
 
-  const streakOk = sc.qualifyingSuccessStreak >= 3 && sc.streakExerciseIds.length >= 2
+  const needed = current === 'S2' ? INDEPENDENT_FADE_STREAK : SUPPORTED_FADE_STREAK
+  const streakOk = sc.qualifyingSuccessStreak >= needed && sc.streakExerciseIds.length >= 2
   if (!streakOk) return { fade: false, nextTier: current, reason: 'streak' }
   if (sc.recentComparableFailures > 0) return { fade: false, nextTier: current, reason: 'recent-failure' }
 
   const next = TIER_ORDER[tierIndex(current) + 1]!
-  if (current === 'S1' && state.masteryProbability < 0.75) {
-    return { fade: false, nextTier: current, reason: 'p<0.75' }
-  }
   if (current === 'S2' && state.currentVerifiedLevel < 2) {
     return { fade: false, nextTier: current, reason: 'needs-level-2' }
   }

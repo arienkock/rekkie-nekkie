@@ -319,6 +319,8 @@ export interface ExerciseSessionState {
   /** Evidence weight class for the primary skill after assistance adjustments. */
   evidenceWeight: number
   lastSavedAt: string | null
+  /** Served straight after a revealed answer of the same skill ("Nu jij"). */
+  isSibling?: boolean
 }
 
 // ---- Learner profile & snapshot ----
