@@ -3,6 +3,7 @@ import { MemoryDriver } from '../../storage/persistence'
 import * as rngModule from '../../engine/rng'
 import { LearnerStore, SESSION_TARGET_ITEMS } from '../learner-store'
 import type { ExerciseSessionState, GeneratedExercise, GeneratedStep } from '../../domain/types'
+import { generateTestBlockFor } from '../../generators'
 
 const DEFAULT_TABLES_FOR_TEST = [6, 7, 8, 9]
 
@@ -438,9 +439,14 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
     expect(store.requestHint()).toMatch(/geen hulp/)
     expect(s!.hintLevel).toBe(0)
     const answers = Object.fromEntries(s!.exercise.steps.map((st) => [st.id, st.expected]))
-    // Leave the first one blank: wrong, but the rest still passes (5 of 6).
+    // Leave the first one blank: first a warning that records nothing…
     answers[s!.exercise.steps[0]!.id] = ''
-    const check = store.submitBlock(answers)
+    const warned = store.submitBlock(answers)
+    expect(warned.blank).toEqual([s!.exercise.steps[0]!.id])
+    expect(s!.phase).toBe('working')
+    expect(s!.steps.every((r) => r.attemptCount === 0)).toBe(true)
+    // …then, checked anyway: wrong, but the rest still passes (5 of 6).
+    const check = store.submitBlock(answers, { confirmBlank: true })
     expect(check.invalid).toEqual([])
     expect(check.results[s!.exercise.steps[0]!.id]!.isCorrect).toBe(false)
     store.completeExercise()
@@ -474,7 +480,7 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
       store.completeExercise()
       s = store.nextExercise()
     }
-    store.submitBlock({})
+    store.submitBlock({}, { confirmBlank: true })
     store.completeExercise()
     expect(store.skillState('NUM.COMPARE.Symbols').scaffolding.currentTier).toBe('S2')
   })
@@ -511,7 +517,7 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
       expect(s.exercise.format).toBe('block')
       // Get the rounding groups wrong, everything else right.
       const wrong = s.exercise.primarySkillId.startsWith('NUM.ROUND')
-      store.submitBlock(wrong ? {} : Object.fromEntries(s.exercise.steps.map((st) => [st.id, st.expected])))
+      store.submitBlock(wrong ? {} : Object.fromEntries(s.exercise.steps.map((st) => [st.id, st.expected])), { confirmBlank: true })
       store.completeExercise()
       s = store.nextExercise()
     }
@@ -524,5 +530,34 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
     // Maatwerk is favoured in the next ordinary session.
     const next = store.startSession()!
     expect(['NUM.ROUND.Ten', 'NUM.ROUND.Hundred']).toContain(next.exercise.primarySkillId)
+  })
+
+  it('a proeftoets stopped halfway keeps its checked page and maatwerk, and continues where it stopped', () => {
+    const store = new LearnerStore('proef-stop', new MemoryDriver())
+    let s = store.startSession('proeftoets', DEFAULT_TABLES_FOR_TEST, { proeftoetsId: 'proeftoets-blok-2' })!
+    // Group 1 right, group 2 (rounding) wrong and checked, then Stoppen before "Volgende".
+    solveAll(store, s)
+    store.completeExercise()
+    s = store.nextExercise()!
+    expect(s.exercise.primarySkillId).toBe('NUM.ROUND.Ten')
+    store.submitBlock({}, { confirmBlank: true })
+    store.endSession()
+    expect(store.currentSession).toBeNull()
+    expect(store.proeftoetsResults.map((r) => r.passed)).toEqual([true, false])
+    expect(store.snapshot.focusSkills).toEqual(['NUM.ROUND.Ten'])
+    expect(store.proeftoetsPaused).toBe(true)
+    // "Ga verder" continues with group 3.
+    expect(store.nextExercise()!.exercise.primarySkillId).toBe('NUM.ROUND.Hundred')
+    expect(store.proeftoetsPaused).toBe(false)
+  })
+
+  it('a test page with a two-part item shows its picture once', () => {
+    const store = new LearnerStore('pic', new MemoryDriver())
+    atToetsvorm(store, 'MONEY.CONTEXT.Budget')
+    const block = generateTestBlockFor({ seed: 'pic', tier: 'S3', band: 'standard', purpose: 'growth', primarySkillId: 'MONEY.CONTEXT.Budget' })
+    const pictures = block.steps.map((st) => (st.widget ? JSON.stringify(st.widget) : null))
+    for (let i = 1; i < pictures.length; i++) {
+      if (pictures[i]) expect(pictures[i]).not.toBe(pictures[i - 1])
+    }
   })
 })

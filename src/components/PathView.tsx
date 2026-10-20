@@ -58,7 +58,11 @@ export function PathView({ store, onStartLesson, onStartTest }: {
                       <strong>{test.titleNl}</strong>
                       <p className="muted small">{test.sourceNl}</p>
                     </div>
-                    <button type="button" className="btn" onClick={() => onStartTest(test.id)}>Maak de proeftoets</button>
+                    <button type="button" className="btn" onClick={() => onStartTest(test.id)}>
+                      {store.proeftoetsPaused && store.proeftoets?.id === test.id
+                        ? `Ga verder (opdracht ${store.sessionItemsDone + 1} van ${test.groups.length})`
+                        : 'Maak de proeftoets'}
+                    </button>
                   </div>
                 )}
                 <ol className="lesson-list">

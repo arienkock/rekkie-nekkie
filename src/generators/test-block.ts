@@ -20,6 +20,15 @@ function blockSize(sample: GeneratedExercise): number {
   return sample.steps.length >= 2 ? 4 : 6
 }
 
+/** Instruction + prompt as one line, without saying a sentence twice
+ *  ("Heb je genoeg aan € 15,00? Heb je genoeg aan € 15,00?"). */
+function withInstruction(instruction: string, prompt: string): string {
+  const sentences = (text: string) => text.split(/(?<=[.?!])\s+/).filter(Boolean)
+  const said = new Set(sentences(instruction).map((t) => t.trim()))
+  const rest = sentences(prompt).filter((t) => !said.has(t.trim()))
+  return [instruction, ...rest].join(' ')
+}
+
 export function generateTestBlock(ctx: GeneratorContext, generate: Generator, size?: number): GeneratedExercise {
   const at = (i: number) => generate({ ...ctx, tier: 'S3', seed: `${ctx.seed}:b${i}` })
   const first = at(0)
@@ -43,8 +52,10 @@ export function generateTestBlock(ctx: GeneratorContext, generate: Generator, si
       ...s,
       id: `i${n}-${s.id}`,
       // Stories carry their own text: keep it with the item when instructions differ.
-      promptNl: !shared && k === 0 ? `${ex.instructionNl} ${s.promptNl}` : s.promptNl,
-      widget: s.widget ?? ex.widget ?? null,
+      promptNl: !shared && k === 0 ? withInstruction(ex.instructionNl, s.promptNl) : s.promptNl,
+      // The item's picture goes with its first line only: a two-part item
+      // must not show the same picture twice.
+      widget: s.widget ?? (k === 0 ? ex.widget : null) ?? null,
     })),
   )
   return {

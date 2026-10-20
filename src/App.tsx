@@ -38,6 +38,7 @@ export default function App() {
 
   const start = (mode: PracticeMode = store.practiceMode, options: { lessonId?: string; proeftoetsId?: string } = {}) => {
     if (store.currentSession && !window.confirm('Je sessie is nog niet klaar. Wil je een nieuwe sessie beginnen?')) return
+    if (store.proeftoetsPaused && !window.confirm('Je proeftoets is nog niet klaar. Wil je toch iets anders beginnen?')) return
     const selection = mode === 'tables' && tables.length === 0 ? store.selectedTables : tables
     const again = mode === 'lesson' ? { lessonId: options.lessonId ?? store.lessonId ?? undefined }
       : mode === 'proeftoets' ? { proeftoetsId: options.proeftoetsId ?? store.proeftoets?.id }
@@ -45,6 +46,15 @@ export default function App() {
     store.startSession(mode, selection, again)
     setView('exercise')
   }
+
+  /** Back to the open item, or on with the next group of a stopped proeftoets. */
+  const resume = () => {
+    if (store.proeftoetsPaused) store.nextExercise()
+    setView('exercise')
+  }
+
+  const startTest = (proeftoetsId: string) =>
+    store.proeftoetsPaused && store.proeftoets?.id === proeftoetsId ? resume() : start('proeftoets', { proeftoetsId })
 
   const blokId = store.snapshot.preferences.currentBlokId ?? DEFAULT_BLOK_ID
   const nowLesson = currentLesson(blokId, store.snapshot.skills)
@@ -104,6 +114,14 @@ export default function App() {
                 {nickname ? `Hoi ${nickname}!` : 'Hoi!'}{' '}
                 <span className="muted">Wat gaan we vandaag oefenen?</span>
               </p>
+              {store.proeftoetsPaused && store.proeftoets && (
+                <div className="resume-practice">
+                  <p>Je was bezig met {store.proeftoets.titleNl}: opdracht {store.sessionItemsDone + 1} van {store.proeftoets.groups.length} is de volgende.</p>
+                  <button type="button" className="btn primary" onClick={resume}>
+                    ▶ Ga verder met de proeftoets
+                  </button>
+                </div>
+              )}
               {store.currentSession && (
                 <div className="resume-practice">
                   <p>Je bent bezig met {store.practiceMode === 'tables' ? `de tafels van ${store.selectedTables.join(', ')}`
@@ -159,7 +177,7 @@ export default function App() {
           (store.currentSession ? (
             <ExerciseView key={store.currentSession.id} store={store} />
           ) : (
-            <SessionSummary store={store} onStart={() => start()} onProgress={() => setView('path')} onHome={() => setView('home')} />
+            <SessionSummary store={store} onStart={() => start()} onResume={resume} onProgress={() => setView('path')} onHome={() => setView('home')} />
           ))}
 
         {view === 'progress' && <ProgressView store={store} />}
@@ -168,7 +186,7 @@ export default function App() {
           <PathView
             store={store}
             onStartLesson={(lessonId) => start('lesson', { lessonId })}
-            onStartTest={(proeftoetsId) => start('proeftoets', { proeftoetsId })}
+            onStartTest={startTest}
           />
         )}
 
@@ -185,11 +203,13 @@ export default function App() {
 function SessionSummary({
   store,
   onStart,
+  onResume,
   onProgress,
   onHome,
 }: {
   store: LearnerStore
   onStart: () => void
+  onResume: () => void
   onProgress: () => void
   onHome: () => void
 }) {
@@ -199,15 +219,23 @@ function SessionSummary({
   const skipped = results.filter((r) => r.skipped).length
   const firsts = results.filter((r) => r.firstTimeSuccess)
 
-  if (store.practiceMode === 'proeftoets' && store.proeftoets && store.proeftoetsResults.length > 0) {
+  if (store.practiceMode === 'proeftoets' && store.proeftoets) {
     const passed = store.proeftoetsResults.filter((r) => r.passed).length
+    const paused = store.proeftoetsPaused
     return (
       <section className="session-summary">
-        <h2>{store.proeftoets.titleNl}: klaar! 📝</h2>
-        <p>
-          <strong>{passed}</strong> van de <strong>{store.proeftoetsResults.length}</strong> opdrachten gehaald (80% goed per opdracht).
-        </p>
-        <table className="proeftoets-results">
+        <h2>{store.proeftoets.titleNl}: {paused ? 'gepauzeerd ⏸' : 'klaar! 📝'}</h2>
+        {paused ? (
+          <p>
+            Je hebt <strong>{store.proeftoetsResults.length}</strong> van de <strong>{store.proeftoets.groups.length}</strong> opdrachten gemaakt.
+            Ga verder wanneer je wilt: je begint bij opdracht {store.sessionItemsDone + 1}.
+          </p>
+        ) : (
+          <p>
+            <strong>{passed}</strong> van de <strong>{store.proeftoetsResults.length}</strong> opdrachten gehaald (80% goed per opdracht).
+          </p>
+        )}
+        {store.proeftoetsResults.length > 0 && <table className="proeftoets-results">
           <thead><tr><th>Opdracht</th><th>Goed</th><th></th></tr></thead>
           <tbody>
             {store.proeftoetsResults.map((r, i) => (
@@ -218,12 +246,16 @@ function SessionSummary({
               </tr>
             ))}
           </tbody>
-        </table>
+        </table>}
         {passed < store.proeftoetsResults.length && (
-          <p className="muted">De opdrachten met maatwerk komen vaker terug bij Rekenen, tot je ze in toetsvorm goed hebt. Daarna: maak de proeftoets nog een keer.</p>
+          <p className="muted">
+            De opdrachten met maatwerk komen vaker terug bij Rekenen, tot je ze in toetsvorm goed hebt.
+            {paused ? '' : ' Daarna: maak de proeftoets nog een keer.'}
+          </p>
         )}
         <div className="btn-row">
-          <button type="button" className="btn primary" onClick={onProgress}>Naar het leerpad</button>
+          {paused && <button type="button" className="btn primary" onClick={onResume}>▶ Ga verder met de proeftoets</button>}
+          <button type="button" className={`btn ${paused ? '' : 'primary'}`} onClick={onProgress}>Naar het leerpad</button>
           <button type="button" className="btn ghost" onClick={onHome}>Terug naar Vandaag</button>
         </div>
       </section>

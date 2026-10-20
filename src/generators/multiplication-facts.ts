@@ -30,7 +30,7 @@ export function generateMultiplicationFacts(ctx: GeneratorContext): GeneratedExe
     id: uniqueId(rng), archetypeId: 'multiplication-facts', seed: ctx.seed,
     primarySkillId: ctx.primarySkillId, supportingSkillIds: [],
     instructionNl: test && !story ? BOOK.rekenUit : missing ? `Welk getal ontbreekt? □ × ${table} = ${product}`
-      : story ? `Er zijn ${multiplier} doosjes met elk ${table} potloden. Hoeveel potloden zijn dat samen?`
+      : story ? `Er zijn ${multiplier} doosjes met elk ${table} potloden.`
         : `Hoeveel is ${multiplier} × ${table}?`,
     steps: [{
       id: 'fact', promptNl: missing ? `… × ${table} = ${product}` : story ? 'Hoeveel potloden zijn er samen?' : `${multiplier} × ${table} =`,

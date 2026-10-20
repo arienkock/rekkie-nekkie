@@ -61,6 +61,9 @@ export interface ProeftoetsGroupResult {
 export interface BlockCheck {
   /** Steps whose answer could not be read (fix the notation, nothing recorded). */
   invalid: string[]
+  /** Steps left empty. Unless the check confirmed them, nothing is recorded:
+   *  a field hidden under the keyboard must not fail the page. */
+  blank: string[]
   results: Record<string, StepValidation>
 }
 
@@ -473,18 +476,21 @@ export class LearnerStore {
   }
 
   /**
-   * Check a whole test-format block at once ("Klaar, nakijken"). Blank
-   * answers count as wrong, as on a test. Unreadable notation records
-   * nothing: the child fixes it and checks again.
+   * Check a whole test-format block at once ("Klaar, nakijken"). Unreadable
+   * notation records nothing: the child fixes it and checks again. Blank
+   * answers first come back as `blank` (nothing recorded); once she chooses
+   * to check anyway (`confirmBlank`), they count as wrong, as on a test.
    */
-  submitBlock(answers: Record<string, ExerciseAnswer>): BlockCheck {
+  submitBlock(answers: Record<string, ExerciseAnswer>, { confirmBlank = false }: { confirmBlank?: boolean } = {}): BlockCheck {
     const session = this.currentSession
     if (!session) throw new Error('No active session')
     const results: Record<string, StepValidation> = {}
     const invalid: string[] = []
+    const blank: string[] = []
     for (const step of session.exercise.steps) {
       const answer = answers[step.id] ?? ''
       if (isEmptyAnswer(answer)) {
+        blank.push(step.id)
         results[step.id] = { isCorrect: false, feedbackNl: 'Niet ingevuld.', misconceptionId: null }
         continue
       }
@@ -492,9 +498,9 @@ export class LearnerStore {
       if (validation.invalidFormat) invalid.push(step.id)
       results[step.id] = validation
     }
-    if (invalid.length > 0) {
+    if (invalid.length > 0 || (blank.length > 0 && !confirmBlank)) {
       this.notify()
-      return { invalid, results }
+      return { invalid, blank, results }
     }
     for (const step of session.exercise.steps) {
       const response = session.steps.find((r) => r.stepId === step.id)!
@@ -508,7 +514,7 @@ export class LearnerStore {
     session.work.answers = session.exercise.steps.map((st) => answers[st.id] ?? '')
     session.work.solved = session.exercise.steps.map(() => true)
     this.notify()
-    return { invalid, results }
+    return { invalid, blank, results }
   }
 
   /** Learner-requested help: expand one layer at a time (§2.5).
@@ -714,7 +720,8 @@ export class LearnerStore {
         passed: primaryCorrect,
         maatwerkNl: group?.maatwerkNl,
       })
-      if (this.proeftoetsResults.length === this.proeftoets.groups.length) this.applyMaatwerk()
+      // Per group, so a test she stops halfway still yields its maatwerk.
+      this.applyMaatwerk(this.proeftoetsResults[this.proeftoetsResults.length - 1]!)
     }
     this.snapshot.totalExercisesCompleted += 1
 
@@ -739,20 +746,25 @@ export class LearnerStore {
   }
 
   /**
-   * After a practice test: every group that did not pass becomes maatwerk.
-   * More than half wrong → back to the bridge (S1: model and written
-   * layout side by side); otherwise practise on her own (S2). Focus skills
-   * are favoured in every session until they pass a test block again.
+   * A practice-test group that did not pass becomes maatwerk. More than
+   * half wrong → back to the bridge (S1: model and written layout side by
+   * side); otherwise practise on her own (S2). Focus skills are favoured in
+   * every session until they pass a test block again.
    */
-  private applyMaatwerk(): void {
-    const failed = this.proeftoetsResults.filter((r) => !r.passed)
-    for (const r of failed) {
-      const state = this.skillState(r.skillId)
-      state.scaffolding.currentTier = r.correct / r.total < 0.5 ? 'S1' : 'S2'
-      state.scaffolding.qualifyingSuccessStreak = 0
-      this.snapshot.skills[r.skillId] = state
-    }
-    this.snapshot.focusSkills = [...new Set([...(this.snapshot.focusSkills ?? []), ...failed.map((r) => r.skillId)])]
+  private applyMaatwerk(result: ProeftoetsGroupResult): void {
+    if (result.passed) return
+    const state = this.skillState(result.skillId)
+    state.scaffolding.currentTier = result.correct / result.total < 0.5 ? 'S1' : 'S2'
+    state.scaffolding.qualifyingSuccessStreak = 0
+    this.snapshot.skills[result.skillId] = state
+    this.snapshot.focusSkills = [...new Set([...(this.snapshot.focusSkills ?? []), result.skillId])]
+  }
+
+  /** A practice test that was stopped before its last group: "Ga verder"
+   *  continues with the next group (nextExercise). */
+  get proeftoetsPaused(): boolean {
+    return this.currentSession === null && this.practiceMode === 'proeftoets' && this.proeftoets !== null
+      && this.sessionItemsDone < this.proeftoets.groups.length
   }
 
   /** Stop without penalty: unfinished work is preserved, no negative update. */
@@ -778,9 +790,14 @@ export class LearnerStore {
   }
 
   /** Pause/stop the session: the open item is preserved (no penalty, no
-   *  item consumed); "Ga verder" resumes it via nextExercise. */
+   *  item consumed); "Ga verder" resumes it via nextExercise. A test page
+   *  that was already checked is committed first, so its result counts. */
   endSession(): void {
     if (!this.currentSession) return
+    if (this.currentSession.exercise.format === 'block' && this.currentSession.phase === 'feedback') {
+      this.completeExercise()
+      return
+    }
     this.currentSession = null
     this.persist()
     this.notify()

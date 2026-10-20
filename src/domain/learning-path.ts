@@ -163,9 +163,13 @@ export function pathSkills(): SkillId[] {
 
 // ---- Where she is on the path ----
 
-/** A skill counts as done on the path once it reached the test format or Level 2. */
+/**
+ * A skill counts as done on the path once she passed it in the test format
+ * (or reached Level 2). Being *scheduled* for the test format (tier S3) is
+ * not enough: the lesson would show ✓ while its skill still says "zelf".
+ */
 export function skillOnTestLevel(state: LearnerSkillState | undefined): boolean {
-  return !!state && (state.currentVerifiedLevel >= 2 || state.scaffolding.currentTier === 'S3')
+  return !!state && (state.currentVerifiedLevel >= 2 || state.coverage.some((c) => c.key === 'variation:toetsvorm' && c.independentSuccesses > 0))
 }
 
 export function lessonComplete(lesson: PathLesson, states: Record<SkillId, LearnerSkillState>): boolean {

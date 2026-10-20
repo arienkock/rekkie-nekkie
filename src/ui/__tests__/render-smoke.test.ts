@@ -42,7 +42,7 @@ describe('screens render for every skill', () => {
       expect(html).toContain('Klaar, nakijken')
       expect(html).not.toContain('Hint')
       // After checking: every line marked, right answers shown for wrong ones.
-      store.submitBlock({})
+      store.submitBlock({}, { confirmBlank: true })
       html = renderToString(createElement(ExerciseView, { store }))
       expect(html).toContain('Goed antwoord')
     })

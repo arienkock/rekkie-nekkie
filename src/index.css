@@ -1233,6 +1233,19 @@ main {
   justify-content: safe center;
 }
 
+/*
+ * Working screens stay pinned to the top. Centred, the whole card jumped
+ * whenever the on-screen keyboard opened or closed (main changes height)
+ * and by half the height of every feedback, hint or warning that appeared.
+ * The auto margin takes the free space, so the centring above no longer
+ * applies to them.
+ */
+main > .exercise-view,
+main > .session-summary,
+main > .path-view {
+  margin-bottom: auto;
+}
+
 /* Save failure & summary states */
 .save-banner {
   background: var(--warn-soft);
@@ -1294,6 +1307,7 @@ main {
 .answer-input,
 .digit-input input,
 .qr-inputs input,
+.count-input input,
 .import-textarea {
   font-size: max(16px, 1em);
 }
@@ -1669,6 +1683,8 @@ main {
   font: inherit;
   font-weight: 650;
   min-width: 52px;
+  /* A finger-sized target in every compact tier. */
+  min-height: 44px;
   padding: 8px 14px;
   border: 1.5px solid var(--border-strong);
   border-radius: 10px;
@@ -1710,7 +1726,14 @@ main {
   padding: 6px 4px;
   border: 1.5px solid var(--border-strong);
   border-radius: 8px;
+  color: var(--text);
+  /* After `font: inherit` (the label is 0.85rem): below 16px iOS zooms in. */
+  font-size: max(16px, 1em);
 }
+
+.count-input input.checked-correct { border-color: var(--ok); background: var(--ok-soft); }
+.count-input input.checked-incorrect { border-color: var(--warn); background: var(--warn-soft); }
+.count-input input.checked-invalid { background: var(--surface-alt); }
 
 /* ---- Toetsvorm block ---- */
 
@@ -1718,20 +1741,56 @@ main {
 
 .book-instruction { font-weight: 700; }
 
-.block-note { margin-top: -4px; }
+.block-note { margin: -4px 0 0; }
 
+/*
+ * A test page is one column: the item-view's landscape split (visual left,
+ * work right) would scatter the title, the items and the button over both.
+ */
+.exercise-card.block-card {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Numbered with the same badge as the steps, so two columns stay legible. */
 .block-items {
-  list-style: decimal;
-  padding-left: 1.6em;
-  margin: 12px 0;
+  list-style: none;
+  padding: 0;
+  margin: 4px 0;
   display: grid;
   gap: 10px;
 }
 
-.block-item { padding: 6px 8px; border-radius: 10px; }
+/* Landscape: short sums side by side, like the book's test page. Items
+ * with a picture or a long written answer keep the full width. */
+@media (min-width: 900px) {
+  .block-items.two-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 18px;
+  }
+}
+
+/* Markers are outlines and backgrounds only: they never change the size of
+ * an item, so nothing moves under her finger while she fixes an answer. */
+.block-item { padding: 6px 8px; border-radius: 10px; outline: 2px solid transparent; outline-offset: -2px; }
 .block-item.right { background: var(--ok-soft); }
 .block-item.wrong { background: var(--warn-soft); }
-.block-item.invalid { outline: 2px solid var(--warn); }
+.block-item.flagged-invalid { outline-color: var(--warn); }
+.block-item.flagged-blank { outline: 2px dashed var(--border-strong); }
+.block-item.fixed { outline-color: transparent; }
+.block-item.fixed .block-solution { opacity: 0.55; }
+
+.block-notice {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-alt);
+  animation: feedback-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.block-notice.invalid { border-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+.block-notice p { margin: 0; font-weight: 650; }
+.block-notice .btn-row { margin-top: 8px; }
 
 .block-line {
   display: flex;
@@ -1739,6 +1798,9 @@ main {
   align-items: center;
   gap: 10px;
 }
+
+/* The field takes the rest of the line, so a long answer stays readable. */
+.block-line .answer-input { flex: 1 1 180px; }
 
 .block-prompt { font-family: var(--mono); font-size: 1.05rem; }
 .block-answer .given { font-weight: 700; }

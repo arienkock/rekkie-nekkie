@@ -20,18 +20,34 @@ export function useViewportFit() {
     const vv = window.visualViewport
     if (!vv) return
 
+    const isTextField = (el: Element | null): el is HTMLInputElement | HTMLTextAreaElement =>
+      el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+
+    const reveal = (el: HTMLElement) => {
+      // Wait a frame so the inset (and any layout shift) has landed.
+      requestAnimationFrame(() => {
+        // A field can belong to a larger unit (a test item with its message
+        // underneath, marked data-reveal): show all of it when it fits above
+        // the keyboard, otherwise at least the field itself.
+        const unit = el.closest<HTMLElement>('[data-reveal]')
+        const fits = unit !== null && unit.getBoundingClientRect().height <= vv.height * 0.6
+        ;(fits ? unit : el).scrollIntoView({ block: 'nearest' })
+      })
+    }
+
+    let lastInset = -1
     const updateInset = () => {
-      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
-      document.documentElement.style.setProperty('--keyboard', `${Math.round(inset)}px`)
+      const inset = Math.round(Math.max(0, window.innerHeight - vv.height - vv.offsetTop))
+      document.documentElement.style.setProperty('--keyboard', `${inset}px`)
+      // iPadOS slides the keyboard in ~250 ms *after* focus, so the reveal on
+      // focus ran against the full-height screen and the field can end up
+      // under the keyboard. Reveal it again once the keyboard has landed.
+      if (inset !== lastInset && isTextField(document.activeElement)) reveal(document.activeElement)
+      lastInset = inset
     }
 
     const revealFocus = (e: FocusEvent) => {
-      const el = e.target
-      if (!(el instanceof HTMLElement)) return
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-        // Wait a frame so the inset (and any layout shift) has landed.
-        requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest' }))
-      }
+      if (isTextField(e.target as Element)) reveal(e.target as HTMLElement)
     }
 
     updateInset()

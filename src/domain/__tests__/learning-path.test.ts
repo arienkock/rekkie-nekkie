@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { KNOWLEDGE_GRAPH } from '../knowledge-graph'
-import { LEARNING_PATH, PROEFTOETSEN, currentLessons, lessonById, pathSkills } from '../learning-path'
+import { LEARNING_PATH, PROEFTOETSEN, currentLessons, lessonById, lessonComplete, pathSkills } from '../learning-path'
 import { newSkillState } from '../../engine/evidence'
 import { generateTestBlockFor, hasGenerator } from '../../generators'
 import type { LearnerSkillState } from '../types'
@@ -32,11 +32,18 @@ describe('learning path', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('moves the session window forward once a lesson reaches the test format', () => {
+  it('moves the session window forward once a lesson is passed in the test format', () => {
     const states: Record<string, LearnerSkillState> = {}
     for (const n of KNOWLEDGE_GRAPH) states[n.id] = newSkillState(n.id)
     expect(currentLessons('blok-2', states).map((l) => l.id)).toEqual(['2-1', '2-2'])
+    // Scheduled for the test format is not done yet: the ✓ waits for a passed block.
     for (const id of lessonById('2-1')!.skills) states[id]!.scaffolding.currentTier = 'S3'
+    expect(lessonComplete(lessonById('2-1')!, states)).toBe(false)
+    expect(currentLessons('blok-2', states).map((l) => l.id)).toEqual(['2-1', '2-2'])
+    for (const id of lessonById('2-1')!.skills) {
+      states[id]!.coverage.push({ key: 'variation:toetsvorm', opportunities: 1, independentSuccesses: 1 })
+    }
+    expect(lessonComplete(lessonById('2-1')!, states)).toBe(true)
     expect(currentLessons('blok-2', states).map((l) => l.id)).toEqual(['2-1', '2-2', '2-3'])
   })
 })
