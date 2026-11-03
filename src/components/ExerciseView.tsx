@@ -89,11 +89,7 @@ function ItemView({ store }: { store: LearnerStore }) {
   }, [stepIndex])
 
   const setAnswer = (value: Answer) => {
-    updateWork('answers', (prev) => {
-      const next = [...prev]
-      next[stepIndex] = value
-      return next
-    })
+    store.editAnswer(stepIndex, value)
     // A message always describes an answer that was *checked*. The moment the
     // learner edits, retire it: a message about this step fades to history, a
     // message about another step disappears rather than sit there looking live.
@@ -108,7 +104,7 @@ function ItemView({ store }: { store: LearnerStore }) {
     // A blank answer is checked too: the store answers "Vul eerst je antwoord
     // in" (and records nothing), which beats a dead button that explains
     // nothing. Unreadable input likewise never becomes wrong-math evidence.
-    const validation = store.submitStepAnswer(step.id, answer)
+    const validation = store.submitStepAnswer(step.id, answer, { checkpoint: false })
     const attempt = session.steps.find((r) => r.stepId === step.id)?.attemptCount ?? 0
 
     let advancedTo: number | null = null
@@ -134,16 +130,21 @@ function ItemView({ store }: { store: LearnerStore }) {
     // Checking from the button moves focus off the input; put it back so a
     // retry is one keystroke away. A correct answer re-focuses via stepIndex.
     if (!validation.isCorrect) focusAnswer()
+    // Include feedback/advancement in the same user action's checkpoint.
+    store.persist()
   }
 
   const goToStep = (i: number) => {
+    store.selectStep(i)
     setStepIndex(i)
     // Carrying another step's message across would read as feedback on this one.
     setFeedback((prev) => (prev && prev.stepId === exercise.steps[i]!.id ? prev : null))
+    store.persist()
   }
 
   const requestHint = () => {
-    setHint(store.requestHint())
+    setHint(store.requestHint({ checkpoint: false }))
+    store.persist()
   }
 
   // Complete the item and present the next one; when the session target is

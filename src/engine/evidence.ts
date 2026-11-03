@@ -257,6 +257,7 @@ export function applyObservationToSkill(
     isTransfer: input.isTransfer,
     efficientStrategyObserved: input.efficientStrategyObserved,
     activeTimeMs: input.activeTimeMs,
+    timingMeasured: true,
     wasDueReview: input.wasDueReview && due,
     beliefBefore,
     beliefAfter: s.masteryProbability,

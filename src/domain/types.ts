@@ -8,6 +8,9 @@
  * own each invariant.
  */
 
+import type { UsageData } from '../analytics/types'
+import type { SavedPractice } from './practice-types'
+
 // ---- Shared vocabulary ----
 
 export type SkillId = string
@@ -187,7 +190,11 @@ export interface SkillObservation {
   isInverse: boolean
   isTransfer: boolean
   efficientStrategyObserved: boolean
-  activeTimeMs: number
+  /** Legacy observations used placeholder durations; null means unmeasured. */
+  activeTimeMs: number | null
+  timingMeasured?: boolean
+  /** Preserve the original legacy value while excluding it from measurements. */
+  legacyActiveTimeMs?: number
   /** Whether this observation was a due independent review attempt. */
   wasDueReview: boolean
   beliefBefore: number
@@ -278,6 +285,19 @@ export interface GeneratedExercise {
   /** 'block': a test-format page of several items answered together and
    *  checked at the end, without help (docs/test-readiness-plan.md §A). */
   format?: 'item' | 'block'
+  /** Original generator arguments, including the root seed of test blocks. */
+  recipe?: ExerciseRecipe
+}
+
+export interface ExerciseRecipe {
+  seed: string
+  tier: ScaffoldTier
+  band: DifficultyBand
+  purpose: PracticePurpose
+  primarySkillId: SkillId
+  variant?: string
+  format: 'item' | 'block'
+  size?: number
 }
 
 // ---- Exercise session runtime ----
@@ -297,11 +317,13 @@ export interface StepResponse {
   firstAnswer: string | number | Record<string, string | number> | null
   outcome: Outcome
   attemptCount: number
+  /** Preserve the actual retrieval date when completion follows a reload. */
+  firstSubmittedAt?: string
 }
 
 export type ExerciseAnswer = string | number | Record<string, string | number>
 
-/** Work in progress survives view changes, but is not evidence or saved profile data. */
+/** Work in progress is saved separately from learning evidence. */
 export interface ExerciseFeedback {
   validation: StepValidation
   stepId: string
@@ -370,6 +392,10 @@ export interface LearnerSnapshot {
   /** Maatwerk: skills a practice test showed need work; favoured until they
    *  pass a test-format block again. */
   focusSkills?: SkillId[]
+  usage?: UsageData
+  practice?: SavedPractice | null
+  /** Legacy journal data kept verbatim until it can be inspected in an export. */
+  recoveredLegacyJournals?: string[]
 }
 
 export const SCHEMA_VERSION = 1

@@ -21,6 +21,7 @@ type View = 'home' | 'exercise' | 'progress' | 'path' | 'settings'
 export default function App() {
   const store = useLearnerStore()
   const [view, setView] = useState<View>('home')
+  useEffect(() => store.setScreen(view), [store, view])
   const preferredTables = store.snapshot.preferences.selectedTables
   const [tables, setTables] = useState<number[]>(preferredTables ?? DEFAULT_TABLES)
   useEffect(() => setTables(preferredTables ?? DEFAULT_TABLES), [preferredTables])
@@ -37,6 +38,7 @@ export default function App() {
   }, [reducedMotion])
 
   const start = (mode: PracticeMode = store.practiceMode, options: { lessonId?: string; proeftoetsId?: string } = {}) => {
+    if (store.storageIssue) return
     if (store.currentSession && !window.confirm('Je sessie is nog niet klaar. Wil je een nieuwe sessie beginnen?')) return
     if (store.proeftoetsPaused && !window.confirm('Je proeftoets is nog niet klaar. Wil je toch iets anders beginnen?')) return
     const selection = mode === 'tables' && tables.length === 0 ? store.selectedTables : tables
@@ -49,7 +51,8 @@ export default function App() {
 
   /** Back to the open item, or on with the next group of a stopped proeftoets. */
   const resume = () => {
-    if (store.proeftoetsPaused) store.nextExercise()
+    if (store.storageIssue) return
+    if (!store.currentSession) store.nextExercise()
     setView('exercise')
   }
 
@@ -71,7 +74,7 @@ export default function App() {
     <div className="app">
       {store.saveFailed && (
         <div className="save-banner" role="alert">
-          ⚠️ Opslaan lukt even niet. Je voortgang wordt pas bewaard als het weer lukt.
+          ⚠️ {store.storageIssue ?? 'Opslaan lukt even niet. Je voortgang wordt pas bewaard als het weer lukt.'}
         </div>
       )}
 
@@ -122,12 +125,12 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {store.currentSession && (
+              {(store.currentSession || (store.practicePaused && !store.proeftoetsPaused)) && (
                 <div className="resume-practice">
                   <p>Je bent bezig met {store.practiceMode === 'tables' ? `de tafels van ${store.selectedTables.join(', ')}`
                     : store.practiceMode === 'lesson' && store.lessonId ? lessonById(store.lessonId)?.titleNl
                     : store.practiceMode === 'proeftoets' ? store.proeftoets?.titleNl : 'rekenen'}.</p>
-                  <button type="button" className="btn primary" onClick={() => setView('exercise')}>
+                  <button type="button" className="btn primary" onClick={resume}>
                     ▶ Ga verder met je sessie
                   </button>
                 </div>
@@ -173,7 +176,12 @@ export default function App() {
           </section>
         )}
 
-        {view === 'exercise' &&
+        {view === 'exercise' && store.storageIssue && (
+          <section className="settings-card">
+            <button type="button" className="btn primary" onClick={() => setView('settings')}>Naar Instellingen om te exporteren</button>
+          </section>
+        )}
+        {view === 'exercise' && !store.storageIssue &&
           (store.currentSession ? (
             <ExerciseView key={store.currentSession.id} store={store} />
           ) : (
@@ -393,7 +401,9 @@ function SettingsView({ store }: { store: LearnerStore }) {
   const importFromText = (text: string) => {
     const ok = store.importJson(text)
     if (ok) {
-      report(setDataNote, 'ok', 'Voortgang geladen. Je ziet hem terug bij Voortgang.')
+      report(setDataNote, store.saveFailed ? 'warn' : 'ok', store.saveFailed
+        ? 'Voortgang geladen, maar opslaan lukt nog niet. Bewaar je exportbestand.'
+        : 'Voortgang geladen. Je ziet hem terug bij Voortgang.')
       setNickname(store.snapshot.preferences.nickname ?? '')
     } else {
       report(setDataNote, 'warn', 'Dat bestand bevat geen geldige voortgang.')
@@ -431,6 +441,7 @@ function SettingsView({ store }: { store: LearnerStore }) {
         <h3>Voortgang</h3>
         <p className="muted">
           Je voortgang blijft op dit apparaat bewaard. Je kunt hem meegeven naar een ander apparaat.
+          {' '}De export bevat ook oefengeschiedenis, zoals antwoorden, hulp en tijd per opgave. Die blijft op dit apparaat tot je zelf exporteert.
         </p>
         <div className="btn-row">
           <button type="button" className="btn" onClick={exportAll}>

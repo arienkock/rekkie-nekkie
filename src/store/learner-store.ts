@@ -38,24 +38,26 @@ import {
   LocalStorageDriver,
   MemoryDriver,
   ProfileStore,
+  ProfileBudgetError,
+  StorageConflictError,
   type StorageDriver,
 } from '../storage/persistence'
+import { validateSnapshot } from '../storage/validate-snapshot'
 
 import { DEFAULT_TABLES, TABLES } from '../generators/multiplication-facts'
+import type { ProeftoetsGroupResult, SessionResult } from '../domain/practice-types'
+import type { AppScreen, ExerciseEnd, ExerciseUsage, PracticeMode, UsageData } from '../analytics/types'
+import {
+  APP_VERSION, ExerciseRecorder, emptyTime, finalizeExercise, finishPractice, newStepUsage, newUsage,
+  PROFILE_BUDGET_BYTES, pruneUsage, shrinkUsage, SNAPSHOT_TARGET_BYTES, systemClock,
+  USAGE_DEFINITIONS, type UsageClock,
+} from '../analytics/usage'
 
-export type PracticeMode = 'curriculum' | 'tables' | 'lesson' | 'proeftoets'
+export type { PracticeMode } from '../analytics/types'
+export type { ProeftoetsGroupResult, SessionResult } from '../domain/practice-types'
 export const SESSION_TARGET_ITEMS = 8
 /** Her class is in blok 2 (October 2026); a parent can change it in Instellingen. */
 export const DEFAULT_BLOK_ID = 'blok-2'
-
-/** One group of a finished or running proeftoets. */
-export interface ProeftoetsGroupResult {
-  skillId: SkillId
-  correct: number
-  total: number
-  passed: boolean
-  maatwerkNl?: string
-}
 
 /** The result of checking a whole test-format block at once. */
 export interface BlockCheck {
@@ -65,16 +67,6 @@ export interface BlockCheck {
    *  a field hidden under the keyboard must not fail the page. */
   blank: string[]
   results: Record<string, StepValidation>
-}
-
-/** One row of per-item session history for the end-of-session summary. */
-export interface SessionResult {
-  skillTitleNl: string
-  /** Solved correctly on first attempts (primary skill). */
-  correct: boolean
-  skipped: boolean
-  /** First-ever exposure of this skill, solved correctly. */
-  firstTimeSuccess: boolean
 }
 
 function freshSnapshot(profileId: string): LearnerSnapshot {
@@ -102,6 +94,11 @@ export class LearnerStore {
   private profileStore: ProfileStore<LearnerSnapshot>
   private listeners = new Set<() => void>()
   private sessionRng = new SeededRng(randomSeed())
+  private recorder: ExerciseRecorder | null = null
+  private clock: UsageClock
+  private visible = true
+  private screen: AppScreen = 'exercise'
+  private workSaveTimer: ReturnType<typeof setTimeout> | null = null
   readonly visitId = `visit-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`
   /** Stable profile identifier this store persists under. */
   readonly profileId: string
@@ -117,7 +114,7 @@ export class LearnerStore {
   sessionRecentSkills: SkillId[] = []
   /** After a revealed answer: serve one fresh item of the same skill and
    *  tier next ("Nu jij"), so a reveal never ends the practice. */
-  private pendingSibling: { skillId: SkillId; tier: ScaffoldTier } | null = null
+  private pendingSibling: { skillId: SkillId; tier: ScaffoldTier; usageId: string } | null = null
   /** Lesson practice: the lesson whose skills this session draws from. */
   lessonId: string | null = null
   /** Practice test in progress (or just finished, for the summary). */
@@ -126,21 +123,49 @@ export class LearnerStore {
   lastSelectionExplanation = ''
   /** True when the last checkpoint save failed (visible recovery path). */
   saveFailed = false
+  /** Recovery is explicit: never silently overwrite unreadable/future progress. */
+  storageIssue: string | null = null
+  private protectedExport: string | null = null
+  private writerPending = false
+  private deferredSave = false
 
   constructor(
     profileId: string,
     driver: StorageDriver = defaultDriver(),
+    clock: UsageClock = systemClock,
   ) {
+    this.clock = clock
     this.profileId = profileId
     this.profileStore = new ProfileStore<LearnerSnapshot>(profileId, driver)
     this.snapshot = this.restoreOrInit()
-    this.normalizeSnapshot()
-    // Freshness is derived state (docs §2.3): recompute on load so due
-    // reviews are visible without new practice.
-    this.recomputeFreshness(new Date())
+    try {
+      validateSnapshot(this.snapshot)
+      this.normalizeSnapshot()
+      this.restorePractice()
+      this.recomputeFreshness(new Date(this.clock.now()))
+      if (!this.storageIssue) this.protectedExport = null
+    } catch {
+      this.protectStoredProgress()
+      try {
+        // Optional telemetry can be unreadable while learning progress is
+        // intact. Display that progress, but export the untouched original.
+        const display = { ...this.snapshot, usage: undefined, practice: null }
+        validateSnapshot(display)
+        this.snapshot = display
+        this.normalizeSnapshot()
+        this.recomputeFreshness(new Date(this.clock.now()))
+      } catch {
+        this.snapshot = freshSnapshot(profileId)
+        this.snapshot.usage = newUsage(this.clock.now())
+      }
+      this.resetPracticeRuntime()
+    }
+    this.saveFailed = this.storageIssue !== null
   }
 
   snapshot: LearnerSnapshot
+
+  get usage(): UsageData { return this.snapshot.usage! }
 
   // ---- Store plumbing ----
 
@@ -157,33 +182,119 @@ export class LearnerStore {
     // Restore before selecting work; never overwrite progress with defaults.
     try {
       const record = this.profileStore.load((data) => canonicalStringify(data))
-      if (record && record.data.schemaVersion === SCHEMA_VERSION) return record.data
+      if (record) {
+        this.protectedExport = JSON.stringify(record.data, null, 2)
+        if (record.data.schemaVersion === SCHEMA_VERSION) {
+          const journal = this.profileStore.readJournalRaw()
+          if (journal !== null) {
+            record.data.recoveredLegacyJournals ??= []
+            if (!record.data.recoveredLegacyJournals.includes(journal)) record.data.recoveredLegacyJournals.push(journal)
+            this.protectedExport = JSON.stringify(record.data, null, 2)
+          }
+          return record.data
+        }
+        this.protectStoredProgress()
+      } else if (this.profileStore.hasStoredData()) {
+        this.protectedExport = this.profileStore.recoveryJson()
+        this.protectStoredProgress()
+      }
     } catch {
-      // Corrupt storage: start fresh rather than fail hard.
+      // A temporary read failure is not evidence of an empty profile.
+      this.protectStoredProgress()
     }
     return freshSnapshot(this.profileId)
   }
 
   /** Checkpoint save of the current snapshot (also used by tests and unload). */
   persist(): void {
-    this.snapshot.revision += 1
-    this.snapshot.savedAt = new Date().toISOString()
+    if (this.workSaveTimer !== null) {
+      clearTimeout(this.workSaveTimer)
+      this.workSaveTimer = null
+    }
+    if (this.writerPending) { this.deferredSave = true; this.notify(); return }
+    if (this.storageIssue) { this.saveFailed = true; this.notify(); return }
+    this.recorder?.flush()
+    this.capturePractice()
+    const candidate = this.checkpointCandidate()
+    candidate.revision += 1
+    candidate.savedAt = new Date(this.clock.now()).toISOString()
     this.saveFailed = false
     try {
-      this.profileStore.save(
-        { revision: this.snapshot.revision, savedAt: this.snapshot.savedAt, data: this.snapshot },
-        (data) => canonicalStringify(data),
-      )
-    } catch {
+      this.compactSnapshot(candidate)
+      try {
+        this.saveSnapshot(candidate)
+      } catch (error) {
+        if (!(error instanceof ProfileBudgetError) && !isQuotaError(error)) throw error
+        // A smaller actual browser quota can still reject our conservative
+        // budget. Sacrifice optional history, then retry the progress save.
+        while (shrinkUsage(candidate.usage!)) { /* bounded optional history */ }
+        candidate.learningTransitions = []
+        candidate.observations = candidate.observations.slice(-20)
+        this.saveSnapshot(candidate)
+      }
+      this.snapshot = candidate
+    } catch (error) {
+      if (error instanceof StorageConflictError) this.externalProgressChanged()
       // Visible recovery path: the UI shows a save-failure banner (§4.1).
       this.saveFailed = true
     }
     this.notify()
   }
 
+  /** Only optional completed history is copied: a failed save must leave the
+   * live history/export intact, and the recorder keeps its current trace. */
+  private checkpointCandidate(): LearnerSnapshot {
+    return { ...this.snapshot, observations: this.snapshot.observations.slice(), learningTransitions: this.snapshot.learningTransitions.slice(),
+      usage: { ...this.usage, exercises: this.usage.exercises.map((e) => ({ ...e, events: e.events.slice() })),
+        sessions: this.usage.sessions.slice(), daily: this.usage.daily.slice(), monthly: this.usage.monthly.slice(),
+        bySkill: this.usage.bySkill.slice(), byFormat: this.usage.byFormat.slice(), retention: { ...this.usage.retention } },
+    }
+  }
+
+  private saveSnapshot(snapshot: LearnerSnapshot): void {
+    const record = { revision: snapshot.revision, savedAt: snapshot.savedAt, data: snapshot }
+    this.profileStore.save(record, canonicalStringify, PROFILE_BUDGET_BYTES, true)
+    try { this.profileStore.clearJournal() } catch { /* The committed snapshot is authoritative. */ }
+  }
+
+  private compactSnapshot(snapshot: LearnerSnapshot): void {
+    pruneUsage(snapshot.usage!, this.clock.now())
+    snapshot.observations = snapshot.observations.slice(-200)
+    snapshot.learningTransitions = snapshot.learningTransitions.slice(-200)
+    while (JSON.stringify(snapshot).length * 2 > SNAPSHOT_TARGET_BYTES) {
+      if (shrinkUsage(snapshot.usage!)) continue
+      if (snapshot.learningTransitions.length) { snapshot.learningTransitions.shift(); continue }
+      if (snapshot.observations.length) { snapshot.observations.shift(); continue }
+      break
+    }
+  }
+
+  private saveWorkSoon(): void {
+    if (typeof window === 'undefined' || this.workSaveTimer !== null) return
+    this.workSaveTimer = setTimeout(() => { this.workSaveTimer = null; this.persist() }, 500)
+  }
+
   /** Fill in fields added after a snapshot was first persisted. */
   private normalizeSnapshot(): void {
     this.snapshot.totalExercisesCompleted ??= 0
+    this.snapshot.usage ??= newUsage(this.clock.now())
+    this.usage.retention.prunedSkillSummaries ??= 0
+    const aggregates = [this.usage.lifetime, ...this.usage.daily.map((b) => b.totals),
+      ...this.usage.monthly.map((b) => b.totals), ...this.usage.bySkill.map((b) => b.totals),
+      ...this.usage.byFormat.map((b) => b.totals)]
+    for (const totals of aggregates) {
+      // An older partial export can lack the reliable-time sum. Never turn
+      // missing historical timing into a fabricated zero-minute average.
+      totals.timedActiveMs ??= totals.timingSamples === 0 ? 0 : null
+    }
+    // Historical activeTimeMs values were hard-coded, not measurements.
+    for (const observation of this.snapshot.observations) {
+      if (!observation.timingMeasured) {
+        if (typeof observation.activeTimeMs === 'number') observation.legacyActiveTimeMs ??= observation.activeTimeMs
+        observation.activeTimeMs = null
+        observation.timingMeasured = false
+      }
+    }
     const selected = this.snapshot.preferences.selectedTables
     this.snapshot.preferences.selectedTables = Array.isArray(selected)
       ? [...new Set(selected)].filter((n) => TABLES.includes(n)) : [...DEFAULT_TABLES]
@@ -207,25 +318,187 @@ export class LearnerStore {
   }
 
   exportJson(): string {
-    return JSON.stringify({ ...this.snapshot, checksum: undefined }, null, 2)
+    if (this.storageIssue && this.protectedExport) return this.protectedExport
+    if (this.storageIssue) throw new Error('Existing progress cannot be read safely')
+    this.persist()
+    return JSON.stringify({
+      ...this.snapshot, checksum: undefined, exportedAt: new Date(this.clock.now()).toISOString(),
+      usageDefinitions: USAGE_DEFINITIONS,
+    }, null, 2)
   }
 
   importJson(json: string): boolean {
     try {
-      const parsed = JSON.parse(json) as LearnerSnapshot
+      // Legacy exports predate retention and can be larger when pretty-printed.
+      if (json.length > 16 * 1024 * 1024) return false
+      const parsed = JSON.parse(json) as LearnerSnapshot & { exportedAt?: string; usageDefinitions?: unknown }
       if (parsed.schemaVersion !== SCHEMA_VERSION) return false
       if (!parsed.skills || typeof parsed.revision !== 'number') return false
       // Tampered exports must never silently overwrite progress: verify the
       // embedded checksum when present (exports strip it).
       if (parsed.checksum && parsed.checksum !== checksumOf(canonicalStringify(parsed))) return false
-      this.snapshot = { ...parsed, profileId: this.profileId }
-      this.normalizeSnapshot()
-      this.recomputeFreshness(new Date())
+      if (parsed.usage && parsed.usage.version !== 1) return false
+      validateSnapshot(parsed)
+      delete parsed.exportedAt
+      delete parsed.usageDefinitions
+      // Stage normalization and resume validation before replacing live work.
+      const candidate = new LearnerStore(this.profileId, new MemoryDriver(), this.clock)
+      candidate.snapshot = { ...parsed, profileId: this.profileId }
+      candidate.normalizeSnapshot()
+      candidate.restorePractice()
+      // Explicit import replaces the current history. Its new commit must
+      // outrank both existing slots, even if the export itself is much older.
+      const current = this.profileStore.load(canonicalStringify)
+      candidate.snapshot.revision = Math.max(candidate.snapshot.revision, this.snapshot.revision, current?.revision ?? 0)
+      this.resetPracticeRuntime()
+      this.snapshot = candidate.snapshot
+      this.storageIssue = null
+      this.protectedExport = null
+      this.restorePractice(false)
+      this.recomputeFreshness(new Date(this.clock.now()))
       this.persist()
       return true
     } catch {
       return false
     }
+  }
+
+  private protectStoredProgress(): void {
+    this.storageIssue = 'Je bestaande gegevens zijn beschermd. Opslaan is gepauzeerd. Exporteer ze via Instellingen om ze te herstellen.'
+  }
+
+  externalProgressChanged(): void {
+    if (this.storageIssue) return
+    this.recorder?.flush()
+    this.capturePractice()
+    this.storageIssue = 'Je voortgang is in een ander tabblad veranderd. Sluit dit tabblad en ga daar verder, of laad deze pagina opnieuw.'
+    // Export the current in-memory work for recovery without pretending it is
+    // the newer on-device state, and without dropping any optional history.
+    this.protectedExport = JSON.stringify({ ...this.snapshot, checksum: undefined,
+      recoveryReason: 'newer-progress-in-another-tab', exportedAt: new Date(this.clock.now()).toISOString(),
+    }, null, 2)
+    this.saveFailed = true
+    this.notify()
+  }
+
+  requireWriterLease(): void { this.writerPending = true }
+
+  grantWriterLease(): void {
+    this.writerPending = false
+    if (this.deferredSave) { this.deferredSave = false; this.persist() }
+  }
+
+  private resetPracticeRuntime(): void {
+    this.currentSession = null
+    this.recorder = null
+    this.practiceMode = 'curriculum'
+    this.lessonId = null
+    this.proeftoets = null
+    this.proeftoetsResults = []
+    this.sessionItemPurposes = []
+    this.sessionItemsDone = 0
+    this.sessionResults = []
+    this.sessionRecentSkills = []
+    this.pendingSibling = null
+    this.lastSelectionExplanation = ''
+    this.selectedTables = [...DEFAULT_TABLES]
+  }
+
+  private capturePractice(): void {
+    if (!this.usage.currentPractice) { this.snapshot.practice = null; return }
+    const session = this.currentSession
+    let exercise = null
+    if (session?.exercise.recipe) {
+      const { exercise: generated, ...state } = session
+      exercise = { recipe: generated.recipe!, signature: exerciseSignature(generated), session: state }
+    }
+    this.snapshot.practice = {
+      mode: this.practiceMode, selectedTables: this.selectedTables, lessonId: this.lessonId,
+      proeftoetsId: this.proeftoets?.id ?? null, proeftoetsResults: this.proeftoetsResults,
+      itemPurposes: this.sessionItemPurposes, itemsDone: this.sessionItemsDone, results: this.sessionResults,
+      recentSkills: this.sessionRecentSkills, pendingSibling: this.pendingSibling,
+      selectionExplanation: this.lastSelectionExplanation, exercise,
+    }
+  }
+
+  private restorePractice(countRestore = true): void {
+    const saved = this.snapshot.practice
+    const trace = this.usage.activeExercise
+    if (!saved || !this.usage.currentPractice) return
+    this.practiceMode = saved.mode
+    this.selectedTables = saved.selectedTables
+    this.lessonId = saved.lessonId
+    this.proeftoets = saved.proeftoetsId ? proeftoetsById(saved.proeftoetsId) : null
+    this.proeftoetsResults = saved.proeftoetsResults
+    this.sessionItemPurposes = saved.itemPurposes
+    this.sessionItemsDone = saved.itemsDone
+    this.sessionResults = saved.results
+    this.sessionRecentSkills = saved.recentSkills
+    this.pendingSibling = saved.pendingSibling
+    this.lastSelectionExplanation = saved.selectionExplanation
+    if (!saved.exercise || !trace) return
+    try {
+      const { recipe, signature, session } = saved.exercise
+      const generated = recipe.format === 'block' ? generateTestBlockFor(recipe, recipe.size) : generateExercise(recipe)
+      if (exerciseSignature(generated) !== signature || trace.id !== session.id) throw new Error('Exercise changed')
+      this.currentSession = { ...session, exercise: generated }
+      this.recorder = new ExerciseRecorder(trace, this.clock, this.visible, this.screen, countRestore)
+      this.recorder.focus(generated.steps[session.work.stepIndex]?.id ?? generated.steps[0]!.id)
+    } catch {
+      // Generator changes never turn an old submitted response into evidence
+      // for a different problem. Keep a truthful interrupted trace instead.
+      trace.interruptionReason = 'exercise-could-not-be-restored'
+      trace.unrestorablePractice = saved
+      const recorder = new ExerciseRecorder(trace, this.clock, this.visible, this.screen, countRestore)
+      finalizeExercise(this.usage, recorder, 'interrupted', this.clock.now())
+      finishPractice(this.usage, 'interrupted', this.clock.now())
+      this.snapshot.practice = null
+      this.resetPracticeRuntime()
+    }
+  }
+
+  /** Browser lifecycle and input activity are observed locally only. */
+  activity(): void { this.recorder?.activity() }
+
+  setVisible(visible: boolean): void {
+    if (this.visible === visible) return
+    this.visible = visible
+    this.recorder?.setVisible(visible)
+    if (this.currentSession || this.usage.currentPractice) this.persist()
+  }
+
+  setScreen(screen: AppScreen): void {
+    if (this.screen === screen) return
+    this.screen = screen
+    this.recorder?.setScreen(screen)
+    if (this.currentSession) this.persist()
+  }
+
+  focusStep(index: number): void {
+    const step = this.currentSession?.exercise.steps[index]
+    if (step) this.recorder?.focus(step.id, 'step_focus')
+  }
+
+  selectStep(index: number): void {
+    const step = this.currentSession?.exercise.steps[index]
+    if (step) this.recorder?.focus(step.id, 'step_select')
+  }
+
+  editAnswer(index: number, answer: ExerciseAnswer): void {
+    const session = this.currentSession
+    if (!session) return
+    const step = session.exercise.steps[index]
+    if (!step || JSON.stringify(session.work.answers[index]) === JSON.stringify(answer)) return
+    this.recorder?.edit(step.id)
+    const answers = [...session.work.answers]
+    answers[index] = answer
+    this.setExerciseWork('answers', answers)
+  }
+
+  private finishUsage(end: ExerciseEnd, correct: boolean | null = null): void {
+    if (!this.recorder) return
+    finalizeExercise(this.usage, this.recorder, end, this.clock.now(), correct)
+    this.recorder = null
   }
 
   // ---- Reading state ----
@@ -236,6 +509,7 @@ export class LearnerStore {
 
   /** Update learner preferences (nickname, motion, theme) and persist. */
   savePreferences(prefs: Partial<LearnerSnapshot['preferences']>): void {
+    if (this.storageIssue) return
     this.snapshot.preferences = { ...this.snapshot.preferences, ...prefs }
     this.persist()
   }
@@ -252,10 +526,13 @@ export class LearnerStore {
     tables: number[] = DEFAULT_TABLES,
     options: { lessonId?: string; proeftoetsId?: string } = {},
   ): ExerciseSessionState | null {
+    if (this.storageIssue) return null
     const validTables = [...new Set(tables)].filter((n) => TABLES.includes(n))
     if (mode === 'tables' && validTables.length === 0) return null
     if (mode === 'lesson' && !lessonById(options.lessonId ?? '')) return null
     if (mode === 'proeftoets' && !proeftoetsById(options.proeftoetsId ?? '')) return null
+    this.finishUsage('replaced')
+    finishPractice(this.usage, 'replaced', this.clock.now())
     this.practiceMode = mode
     this.selectedTables = validTables
     this.lessonId = mode === 'lesson' ? options.lessonId! : null
@@ -266,16 +543,24 @@ export class LearnerStore {
     this.sessionResults = []
     this.sessionRecentSkills = []
     this.pendingSibling = null
+    this.usage.currentPractice = {
+      id: `practice-${randomSeed()}`, startedAt: new Date(this.clock.now()).toISOString(), endedAt: null,
+      mode, lessonId: this.lessonId, proeftoetsId: this.proeftoets?.id ?? null,
+      target: this.sessionTargetItems, completed: 0, skipped: 0, status: 'in_progress',
+    }
     return this.nextExercise()
   }
 
   /** Select and present the next exercise, or null when the session is done. */
   nextExercise(): ExerciseSessionState | null {
+    if (this.storageIssue) return null
     if (this.sessionItemsDone >= this.sessionTargetItems) {
       this.currentSession = null
-      this.notify()
+      finishPractice(this.usage, 'completed', this.clock.now())
+      this.persist()
       return null
     }
+    if (this.usage.currentPractice) this.usage.currentPractice.status = 'in_progress'
     if (this.practiceMode === 'proeftoets' && this.proeftoets) return this.nextProeftoetsGroup(this.proeftoets)
     const sibling = this.pendingSibling
     this.pendingSibling = null
@@ -295,7 +580,7 @@ export class LearnerStore {
         },
         recentPurposes: this.sessionItemPurposes as never[],
         recentSkillIds: this.sessionRecentSkills,
-        now: new Date(),
+        now: new Date(this.clock.now()),
         // Skill-directed practice ("vrij oefenen") is a future feature;
         // chosenTheme is a ThemeId, not a SkillId, and must not leak in here.
         intentSkill: null,
@@ -304,8 +589,9 @@ export class LearnerStore {
       () => this.sessionRng.next(),
     )
     if (!selection) {
+      finishPractice(this.usage, 'interrupted', this.clock.now())
       this.currentSession = null
-      this.notify()
+      this.persist()
       return null
     }
     this.lastSelectionExplanation = selection.explanationNl
@@ -366,11 +652,12 @@ export class LearnerStore {
       }
     }
     if (!exercise) {
+      finishPractice(this.usage, 'interrupted', this.clock.now())
       this.currentSession = null
-      this.notify()
+      this.persist()
       return null
     }
-    return this.present(exercise, tier, sibling !== null)
+    return this.present(exercise, exercise.recipe?.tier ?? tier, sibling !== null, sibling?.usageId ?? null)
   }
 
   /**
@@ -401,7 +688,9 @@ export class LearnerStore {
     return this.present(exercise, 'S3', false)
   }
 
-  private present(exercise: GeneratedExercise, tier: ScaffoldTier, sibling: boolean): ExerciseSessionState {
+  private present(exercise: GeneratedExercise, tier: ScaffoldTier, sibling: boolean, siblingOf: string | null = null): ExerciseSessionState {
+    // Defensive callers may advance without closing the open exercise.
+    this.finishUsage('replaced')
     this.currentSession = {
       id: `sess-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`,
       visitId: this.visitId,
@@ -422,7 +711,7 @@ export class LearnerStore {
       })),
       phase: 'working',
       attempts: 0,
-      startedAt: new Date().toISOString(),
+      startedAt: new Date(this.clock.now()).toISOString(),
       evidenceWeight:
         tier === 'S0' || tier === 'S1'
           ? EVIDENCE_WEIGHTS.scaffoldedPrediction
@@ -430,23 +719,49 @@ export class LearnerStore {
       lastSavedAt: null,
       isSibling: sibling,
     }
+    const trace: ExerciseUsage = {
+      ...emptyTime(), id: this.currentSession.id, exerciseId: exercise.id,
+      practiceId: this.usage.currentPractice?.id ?? 'untracked-practice', visitId: this.currentSession.visitId,
+      appVersion: APP_VERSION, catalogVersion: CATALOG_VERSION, modelVersion: MODEL_VERSION,
+      skillId: exercise.primarySkillId, archetypeId: exercise.archetypeId,
+      seed: exercise.recipe?.seed ?? exercise.seed, fingerprint: exercise.fingerprint,
+      instructionNl: exercise.instructionNl.slice(0, 600), mode: this.practiceMode,
+      lessonId: this.lessonId, proeftoetsId: this.proeftoets?.id ?? null,
+      position: this.sessionItemsDone + 1, scaffold: tier, difficulty: exercise.difficultyBand,
+      purpose: exercise.purpose, selectionReasonNl: this.lastSelectionExplanation.slice(0, 400),
+      representation: exercise.representation, format: exercise.format ?? 'item', siblingOf,
+      startedAt: this.currentSession.startedAt, checkpointAt: this.currentSession.startedAt,
+      endedAt: null, end: null, firstActionMs: null, firstSubmitMs: null,
+      actionCounts: {}, hints: 0, revealed: false, reloads: 0, firstAttemptCorrect: null,
+      steps: exercise.steps.map(newStepUsage), events: [], droppedEvents: 0, timingReliable: true,
+    }
+    this.usage.activeExercise = trace
+    this.recorder = new ExerciseRecorder(trace, this.clock, this.visible, this.screen)
     this.sessionItemPurposes.push(exercise.purpose)
     this.sessionRecentSkills = [...this.sessionRecentSkills, exercise.primarySkillId].slice(-3)
-    this.notify()
+    this.persist()
     return this.currentSession
   }
 
   /** Update presentation state without committing or changing learning evidence. */
   setExerciseWork<K extends keyof ExerciseWorkState>(key: K, value: ExerciseWorkState[K]): void {
     if (!this.currentSession) return
+    if (key === 'stepIndex' && typeof value === 'number') {
+      const step = this.currentSession.exercise.steps[value]
+      if (step) this.recorder?.focus(step.id)
+    }
+    if (key === 'noteOpen' && value !== this.currentSession.work.noteOpen) {
+      this.recorder?.event('selection_note', {}, true)
+    }
     this.currentSession.work[key] = value
+    this.saveWorkSoon()
     this.notify()
   }
 
   /** Validate a learner answer for the given step (no evidence yet).
    *  Blank or unparseable input stays in `working` and never becomes
    *  wrong-math evidence (docs §4.1: "invalid formatting remains in working"). */
-  submitStepAnswer(stepId: string, answer: string | number | Record<string, string | number>): StepValidation {
+  submitStepAnswer(stepId: string, answer: string | number | Record<string, string | number>, { checkpoint = true } = {}): StepValidation {
     const session = this.currentSession
     if (!session) throw new Error('No active session')
     const step = session.exercise.steps.find((s) => s.id === stepId)
@@ -454,14 +769,17 @@ export class LearnerStore {
     const response = session.steps.find((r) => r.stepId === stepId)!
 
     if (isEmptyAnswer(answer)) {
-      this.notify()
-      return { isCorrect: false, feedbackNl: 'Vul eerst je antwoord in.', misconceptionId: null, invalidFormat: true }
+      const validation = { isCorrect: false, feedbackNl: 'Vul eerst je antwoord in.', misconceptionId: null, invalidFormat: true }
+      this.recorder?.submit(stepId, answer, validation, session.hintLevel, true)
+      if (checkpoint) this.persist()
+      return validation
     }
 
     const validation = step.validate(answer)
+    this.recorder?.submit(stepId, answer, validation, session.hintLevel, false)
     if (validation.invalidFormat) {
       // Unparseable notation: no attempt is recorded, no evidence is created.
-      this.notify()
+      if (checkpoint) this.persist()
       return validation
     }
 
@@ -469,9 +787,10 @@ export class LearnerStore {
     response.attemptCount += 1
     if (response.attemptCount === 1) {
       response.outcome = validation.isCorrect ? 'correct' : 'incorrect'
+      response.firstSubmittedAt = new Date(this.clock.now()).toISOString()
     }
     session.attempts += 1
-    this.notify()
+    if (checkpoint) this.persist()
     return validation
   }
 
@@ -484,6 +803,7 @@ export class LearnerStore {
   submitBlock(answers: Record<string, ExerciseAnswer>, { confirmBlank = false }: { confirmBlank?: boolean } = {}): BlockCheck {
     const session = this.currentSession
     if (!session) throw new Error('No active session')
+    if (session.phase === 'feedback') return { invalid: [], blank: [], results: {} }
     const results: Record<string, StepValidation> = {}
     const invalid: string[] = []
     const blank: string[] = []
@@ -498,8 +818,15 @@ export class LearnerStore {
       if (validation.invalidFormat) invalid.push(step.id)
       results[step.id] = validation
     }
-    if (invalid.length > 0 || (blank.length > 0 && !confirmBlank)) {
-      this.notify()
+    const blocked = invalid.length > 0 || (blank.length > 0 && !confirmBlank)
+    this.recorder?.activity()
+    this.recorder?.event('check_block', { result: blocked ? 'blocked' : 'accepted' }, true)
+    for (const step of session.exercise.steps) {
+      const answer = answers[step.id] ?? ''
+      this.recorder?.submit(step.id, answer, results[step.id]!, session.hintLevel, isEmptyAnswer(answer), !blocked, false)
+    }
+    if (blocked) {
+      this.persist()
       return { invalid, blank, results }
     }
     for (const step of session.exercise.steps) {
@@ -507,20 +834,21 @@ export class LearnerStore {
       if (response.attemptCount > 0) continue
       response.firstAnswer = answers[step.id] ?? ''
       response.attemptCount = 1
+      response.firstSubmittedAt = new Date(this.clock.now()).toISOString()
       response.outcome = results[step.id]!.isCorrect ? 'correct' : 'incorrect'
       session.attempts += 1
     }
     session.phase = 'feedback'
     session.work.answers = session.exercise.steps.map((st) => answers[st.id] ?? '')
     session.work.solved = session.exercise.steps.map(() => true)
-    this.notify()
+    this.persist()
     return { invalid, blank, results }
   }
 
   /** Learner-requested help: expand one layer at a time (§2.5).
    *  Levels 1–3 use the exercise's archetype-specific hint ladder (padded
    *  with generic hints); level 4 reveals the solution and voids evidence. */
-  requestHint(): string {
+  requestHint({ checkpoint = true } = {}): string {
     const session = this.currentSession
     if (!session) throw new Error('No active session')
     if (session.exercise.format === 'block') {
@@ -536,16 +864,18 @@ export class LearnerStore {
     const ladder = [...specific, ...generic].slice(0, 3)
     while (ladder.length < 3) ladder.push(generic[ladder.length]!)
 
+    if (session.hintLevel >= 4) return 'Hier zie je het antwoord.'
     session.hintLevel = Math.min(4, session.hintLevel + 1)
+    this.recorder?.hint(session.hintLevel, session.exercise.steps[session.work.stepIndex]!.id)
     if (session.hintLevel >= 4) {
       session.evidenceWeight = EVIDENCE_WEIGHTS.revealed
-      this.notify()
+      if (checkpoint) this.persist()
       return 'Hier zie je het antwoord.'
     }
     if (session.hintLevel >= 1) {
       session.evidenceWeight = Math.min(session.evidenceWeight, EVIDENCE_WEIGHTS.scaffoldedPrediction)
     }
-    this.notify()
+    if (checkpoint) this.persist()
     return ladder[session.hintLevel - 1]!
   }
 
@@ -558,7 +888,8 @@ export class LearnerStore {
     const session = this.currentSession
     if (!session) return
     const ex = session.exercise
-    const now = new Date()
+    const now = new Date(this.clock.now())
+    this.recorder?.flush()
 
     // --- Primary skill: one decisive aggregate observation (§2.2) ---
     // A test-format block passes like a test group: 80% of all its lines
@@ -591,6 +922,11 @@ export class LearnerStore {
     const wasDue = ex.purpose === 'review'
     const wasUnexposed = primaryState.exposureCount === 0
     const primaryAnswered = primaryFirstOutcomes.some((o) => o !== 'unknown')
+    // Finishing a saved problem tomorrow must not turn yesterday's retrieval
+    // into a new delayed-review success. Use the earliest primary response.
+    const responseDates = session.steps.filter((r) => (isBlock || countsAsPrimary(r.stepId)) && r.firstSubmittedAt)
+      .map((r) => Date.parse(r.firstSubmittedAt!)).filter(Number.isFinite)
+    const primaryResponseAt = responseDates.length ? new Date(Math.min(...responseDates)) : now
 
     // Unanswered items are unassessed, not incorrect (§4.5): commit evidence
     // only when at least one primary step has a committed response.
@@ -599,7 +935,7 @@ export class LearnerStore {
       applied = applyObservationToSkill(primaryState, {
         skillId: ex.primarySkillId,
         exerciseId: ex.id,
-        visitId: this.visitId,
+        visitId: session.visitId,
         outcome: primaryCorrect ? 'correct' : 'incorrect',
         eligibility,
         scaffold: session.currentScaffold,
@@ -610,8 +946,8 @@ export class LearnerStore {
         // A practice test mixes skills like the real test: that is transfer.
         isTransfer: ex.purpose === 'transfer' || ex.representation === 'story' || this.practiceMode === 'proeftoets',
         efficientStrategyObserved: primaryCorrect && session.attempts <= session.exercise.steps.length,
-        activeTimeMs: 60_000,
-        now,
+        activeTimeMs: Math.round(this.recorder?.trace.activeMs ?? 0),
+        now: primaryResponseAt,
         // Meaningful instruction (S0/S1 episode with active learner actions) may
         // trigger a learning transition; S2/S3 independent work relies on p(T)=0
         // through eligibility alone.
@@ -634,7 +970,7 @@ export class LearnerStore {
       const sub = applyObservationToSkill(supportingState, {
         skillId: step.skillTarget.skillId,
         exerciseId: ex.id,
-        visitId: this.visitId,
+        visitId: session.visitId,
         outcome: r.outcome,
         eligibility: {
           independent: false,
@@ -650,8 +986,8 @@ export class LearnerStore {
         isInverse: false,
         isTransfer: false,
         efficientStrategyObserved: r.outcome === 'correct',
-        activeTimeMs: 30_000,
-        now,
+        activeTimeMs: Math.round(this.recorder?.trace.steps.find((s) => s.stepId === r.stepId)?.activeMs ?? 0),
+        now: r.firstSubmittedAt ? new Date(r.firstSubmittedAt) : now,
         withLearningTransition: false,
         wasDueReview: false,
       })
@@ -725,12 +1061,15 @@ export class LearnerStore {
     }
     this.snapshot.totalExercisesCompleted += 1
 
+    const usageId = this.recorder?.trace.id ?? session.id
+    this.finishUsage('completed', primaryAnswered ? primaryCorrect : null)
     this.sessionItemsDone += 1
     this.currentSession = null
+    if (this.sessionItemsDone >= this.sessionTargetItems) finishPractice(this.usage, 'completed', this.clock.now())
     // A reveal is followed by one sibling item, but a revealed sibling is not,
     // so help can never trap her in a loop of the same skill.
     if (revealed && applied && !session.isSibling) {
-      this.pendingSibling = { skillId: ex.primarySkillId, tier: session.currentScaffold }
+      this.pendingSibling = { skillId: ex.primarySkillId, tier: session.currentScaffold, usageId }
     }
 
     // Freshness is derived state (docs §5.3.2): recompute after committing
@@ -738,10 +1077,9 @@ export class LearnerStore {
     // instead of showing stale page-load labels.
     this.recomputeFreshness(now)
 
-    // Checkpoint commit: journal the evidence, save, then compact.
-    if (applied) this.profileStore.appendJournal(applied.observation)
+    // Learning evidence, usage finalization and unfinished work share one
+    // checksummed checkpoint. Reloading cannot apply either of them twice.
     this.persist()
-    this.profileStore.clearJournal()
     this.notify()
   }
 
@@ -767,6 +1105,11 @@ export class LearnerStore {
       && this.sessionItemsDone < this.proeftoets.groups.length
   }
 
+  get practicePaused(): boolean {
+    return this.currentSession === null && this.usage.currentPractice !== null
+      && this.sessionItemsDone < this.sessionTargetItems
+  }
+
   /** Stop without penalty: unfinished work is preserved, no negative update. */
   deferExercise(): void {
     if (!this.currentSession) return
@@ -784,24 +1127,41 @@ export class LearnerStore {
       firstTimeSuccess: false,
     })
     this.sessionItemsDone += 1
+    this.finishUsage('skipped')
     this.currentSession = null
+    if (this.sessionItemsDone >= this.sessionTargetItems) finishPractice(this.usage, 'completed', this.clock.now())
     this.persist()
     this.notify()
   }
 
-  /** Pause/stop the session: the open item is preserved (no penalty, no
-   *  item consumed); "Ga verder" resumes it via nextExercise. A test page
-   *  that was already checked is committed first, so its result counts. */
+  /** Stop without a learning penalty. A checked test page is committed first;
+   *  a paused practice test continues at its next unchecked group. */
   endSession(): void {
     if (!this.currentSession) return
     if (this.currentSession.exercise.format === 'block' && this.currentSession.phase === 'feedback') {
       this.completeExercise()
+      if (this.usage.currentPractice) this.usage.currentPractice.status = 'paused'
+      if (this.sessionItemsDone >= this.sessionTargetItems) finishPractice(this.usage, 'completed', this.clock.now())
+      else if (this.practiceMode !== 'proeftoets') finishPractice(this.usage, 'stopped', this.clock.now())
+      this.persist()
       return
     }
+    this.finishUsage('stopped')
     this.currentSession = null
+    if (this.practiceMode === 'proeftoets' && this.usage.currentPractice) this.usage.currentPractice.status = 'paused'
+    else finishPractice(this.usage, 'stopped', this.clock.now())
     this.persist()
     this.notify()
   }
+}
+
+function exerciseSignature(exercise: GeneratedExercise): string {
+  return checksumOf(canonicalStringify(exercise))
+}
+
+function isQuotaError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || /quota/i.test(error.message))
 }
 
 /** A blank answer (empty string, or a digit/QR map with no filled cells). */
@@ -812,10 +1172,7 @@ function isEmptyAnswer(answer: string | number | Record<string, string | number>
 }
 
 function defaultDriver(): StorageDriver {
-  try {
-    if (typeof localStorage !== 'undefined') return new LocalStorageDriver()
-  } catch {
-    // Accessing localStorage can throw (privacy mode).
-  }
-  return new MemoryDriver()
+  // Memory storage is for SSR/tests. In a browser, blocked localStorage must
+  // produce a visible failure instead of falsely claiming durable progress.
+  return typeof window === 'undefined' ? new MemoryDriver() : new LocalStorageDriver()
 }

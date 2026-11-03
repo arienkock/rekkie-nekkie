@@ -10,6 +10,9 @@ export default defineConfig({
   // .github/workflows/pages.yml
   base: '/rekkie-nekkie/',
   plugins: [react()],
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.GITHUB_SHA ?? 'development'),
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],

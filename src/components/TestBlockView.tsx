@@ -58,9 +58,7 @@ export function TestBlockView({ store }: { store: LearnerStore }) {
   const numberOf = (stepId: string) => exercise.steps.findIndex((s) => s.id === stepId) + 1
 
   const setAnswer = (index: number, value: ExerciseAnswer) => {
-    const next = [...answers]
-    next[index] = value
-    store.setExerciseWork('answers', next)
+    store.editAnswer(index, value)
     const id = exercise.steps[index]!.id
     if (notice?.stepIds.includes(id) && !edited.includes(id)) setEdited([...edited, id])
   }
@@ -131,7 +129,7 @@ export function TestBlockView({ store }: { store: LearnerStore }) {
             const fixed = edited.includes(step.id)
             const state = checked ? (ok ? 'right' : 'wrong') : isFlagged ? `flagged-${notice!.kind}${fixed ? ' fixed' : ''}` : ''
             return (
-              <li key={step.id} className={`block-item ${state}`} data-reveal>
+              <li key={step.id} className={`block-item ${state}`} data-reveal onFocusCapture={() => store.focusStep(i)}>
                 {step.widget && <ExerciseWidget widget={step.widget} />}
                 <div className="block-line">
                   <span className="step-num" aria-hidden>{i + 1}</span>

@@ -18,6 +18,11 @@ official GitHub Pages actions.
 
 Rekkie Nekkie is an interactive, client-side math learning and practice application for the Dutch Grade 5/6 mathematics curriculum (groep 5/6).
 
+Practice history and usage measurements stay in the local JSON profile and are
+included in **Instellingen → Exporteren (bestand)**. See
+[local usage data](docs/local-usage-data.md) for measurements, timing semantics,
+resume behavior, and retention limits.
+
 ---
 
 ## 🧭 Learning path (groep 6, blok 1–2)

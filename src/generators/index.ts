@@ -90,7 +90,7 @@ export function generateExercise(ctx: GeneratorContext): GeneratedExercise {
   if (!generator) throw new Error(`No generator registered for ${ctx.primarySkillId}`)
   const exercise = generator(ctx)
   validateGeneratedExercise(exercise)
-  return exercise
+  return { ...exercise, recipe: { ...ctx, format: 'item' } }
 }
 
 /** Generator validity checks (docs §5.3.2) before any item is displayed. */
@@ -121,5 +121,5 @@ export function generateTestBlockFor(ctx: GeneratorContext, size?: number): Gene
   if (!generator) throw new Error(`No generator registered for ${ctx.primarySkillId}`)
   const block = generateTestBlock(ctx, generator, size)
   validateGeneratedExercise(block)
-  return block
+  return { ...block, recipe: { ...ctx, format: 'block', ...(size !== undefined ? { size } : {}) } }
 }
