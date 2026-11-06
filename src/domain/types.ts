@@ -359,6 +359,10 @@ export interface ExerciseSessionState {
   lastSavedAt: string | null
   /** Served straight after a revealed answer of the same skill ("Nu jij"). */
   isSibling?: boolean
+  /** When the answer was revealed: steps first answered after it are copied, not evidence. */
+  revealedAt?: string
+  /** When the last hint was shown; the next one waits HINT_PAUSE_MS so hints get read. */
+  lastHintAt?: string
 }
 
 // ---- Learner profile & snapshot ----

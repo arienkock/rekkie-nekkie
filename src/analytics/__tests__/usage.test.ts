@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LearnerStore, SESSION_TARGET_ITEMS } from '../../store/learner-store'
+import { HINT_PAUSE_MS, LearnerStore, SESSION_TARGET_ITEMS } from '../../store/learner-store'
 import { MemoryDriver, ProfileStore, canonicalStringify, type StorageDriver } from '../../storage/persistence'
 import type { LearnerSnapshot } from '../../domain/types'
 import { DETAIL_LIMIT, EVENT_LIMIT, PROFILE_BUDGET_BYTES, SNAPSHOT_TARGET_BYTES, pruneUsage } from '../usage'
@@ -132,12 +132,13 @@ describe('local usage measurements', () => {
   })
 
   it('links answer reveals to a fresh follow-up and distinguishes them from successful help', () => {
-    const { store } = setup()
+    const { store, clock } = setup()
     const firstId = store.usage.activeExercise!.id
-    for (let i = 0; i < 4; i++) store.requestHint()
+    for (let i = 0; i < 4; i++) { store.requestHint(); clock.advance(HINT_PAUSE_MS) }
     solve(store)
     const trace = store.usage.exercises[0]!
     expect(trace.revealed).toBe(true)
+    expect(trace.firstAttemptCorrect).toBe(false)
     expect(trace.steps[0]!.succeededAfterHint).toBe(false)
     store.nextExercise()
     expect(store.usage.activeExercise!.siblingOf).toBe(firstId)

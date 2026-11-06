@@ -23,9 +23,11 @@ describe('multiplication tables', () => {
         expect(ex.variationTags).toContain(`T${table}:m${multiplier}`)
         expect(ex.variationTags).not.toContain(`T${table}:all-multipliers`)
         if (form === 'missing') expect(ex.widget).toBeNull()
+        // No "1 doosjes met elk 1 potloden": no stories for ×1 or one box.
+        if (form === 'story') expect(table > 1 && multiplier > 1).toBe(true)
       }
       expect(multipliers.size).toBe(10)
-      expect(forms).toEqual(new Set(['product', 'missing', 'story']))
+      expect(forms).toEqual(new Set(table === 1 ? ['product', 'missing'] : ['product', 'missing', 'story']))
     }
   })
 

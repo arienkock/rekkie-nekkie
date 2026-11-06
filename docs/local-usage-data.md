@@ -36,8 +36,21 @@ record. `practiceId` links exercises to a practice session; `position` is one-ba
 describes finalized sessions, including their targets and completed/skipped counts.
 Finishing an eight-item session can include skips; inspect both counts.
 
-`firstAttemptCorrect` is the learning loop's first-response aggregate, not the
-last corrected response. It is null for unassessed, skipped or stopped exercises.
+`firstAttemptCorrect` is true for an item only when every answered step was
+right the first time and no answer was revealed (before November 2026 it followed
+only the item's own final step, so a wrong first sub-step or a revealed answer
+could still read as true). For a test-format block it is the 80% pass rule on
+first responses. It is null for unassessed, skipped or stopped exercises.
+
+**Skip reasons.** "Deze overslaan" first asks *Waarom sla je deze over?* with one
+tap: `too-easy`, `too-hard`, `unclear` (does not understand the question) or
+`no-reason` ("Gewoon overslaan"). The answer is stored as `skipReason` on the
+exercise, as `reason` on its `skipped` event, and counted per reason in
+`totals.skipReasons` (absent until the first such skip). Skips from before this
+change have no `skipReason`.
+
+**Hint pacing.** After a hint, the next one (and the answer) waits five seconds;
+a press during the pause shows the same hint again and is not counted.
 The first parseable committed response remains the learning evidence even after
 correction. In each usage step, `firstAnswer` is the first **submitted** value,
 including blank/invalid input, whereas `firstOutcome` is the first **committed

@@ -90,6 +90,8 @@ The rules change too:
 
 - **Level 2 requires a passed *toetsvorm* block.** At least 5 of 6 correct, without help. Level 3 additionally requires a *toetsvorm* success ≥ 7 days later, in a mixed block. Stars then mean “can do it on the test”.
 - **Fade within a session.** For example, two *Brug* items in a row move her to *Zelf*, and two *Zelf* items to *Toetsvorm*. Fading no longer has to wait for the next visit.
+- **Fast path.** A *Samen* or *Brug* item answered right the first time, without hints, within 15 seconds of active time per step goes straight to *Zelf*: she already knows it (the November 2026 export showed ×1 and ×10 answered in 2–8 s while still on the guided path). A wrong answer at *Zelf* re-supports as usual.
+- **Never open with a test page.** The first item of a session (other than a proeftoets) is at most *Zelf*; *Toetsvorm* blocks come later in the session.
 - **A revealed answer is always followed straight away by a sibling item (“Nu jij”)** at the same tier, so a reveal never ends the practice.
 - **Readiness ignores prerequisites without a generator.** Each one gets a generator, or is treated as satisfied if it is not practisable, so that skills are no longer permanently “teach-first”.
 - **Stop serving mastered skills.** Once a skill passes *toetsvorm*, it only comes back as spaced review, never as a whole session.

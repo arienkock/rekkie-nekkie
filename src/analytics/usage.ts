@@ -23,6 +23,8 @@ export const USAGE_DEFINITIONS = {
   activeTimeBucketUpperBoundsMs: [15_000, 30_000, 60_000, 120_000, 300_000, null],
   answers: 'First/last submitted answers can include invalid/blank input; first/last outcomes refer to committed math responses. Truncated values are labelled.',
   actions: 'Edits are grouped into episodes; no keystroke contents. Screen/visibility/restore/focus events also appear in actionCounts and are not effort scores.',
+  skipReasons: 'Skipping asks "Waarom sla je deze over?": too-easy, too-hard, unclear (does not understand the question) or no-reason. Stored as skipReason on the exercise, on its skipped event, and counted in totals.skipReasons.',
+  firstAttemptCorrect: 'Items: true only when every answered step was right the first time and no answer was revealed. Blocks: the 80% pass rule on first responses.',
   retention: 'Details may be pruned before age/count limits to fit the byte budget. Summaries are updated at finalization, never by pruning.',
 } as const
 
@@ -264,6 +266,10 @@ function addExercise(totals: UsageTotals, trace: ExerciseUsage): void {
     totals.repeatedSubmissions += step.repeatedSubmissions
     totals.editEpisodes += step.editEpisodes
   }
+  if (trace.end === 'skipped' && trace.skipReason) {
+    totals.skipReasons ??= {}
+    totals.skipReasons[trace.skipReason] = (totals.skipReasons[trace.skipReason] ?? 0) + 1
+  }
   totals.hintRequests += trace.hints
   if (trace.revealed) totals.reveals += 1
   totals.departures += trace.actionCounts.hidden ?? 0
@@ -282,7 +288,7 @@ function addExercise(totals: UsageTotals, trace: ExerciseUsage): void {
 export function finalizeExercise(usage: UsageData, recorder: ExerciseRecorder, end: ExerciseEnd, now: number, firstAttemptCorrect: boolean | null = null): void {
   const trace = recorder.trace
   if (trace.end !== null) return
-  recorder.event(end)
+  recorder.event(end, end === 'skipped' && trace.skipReason ? { reason: trace.skipReason } : {})
   trace.endedAt = new Date(now).toISOString()
   trace.end = end
   trace.firstAttemptCorrect = firstAttemptCorrect

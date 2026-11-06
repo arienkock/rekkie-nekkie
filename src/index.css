@@ -760,6 +760,31 @@ h3 {
   font-size: 13px;
 }
 
+.skip-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.skip-ask-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.skip-ask-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skip-ask > .btn.small {
+  align-self: flex-start;
+}
+
 /* ---- Session summary ---- */
 
 .session-summary {

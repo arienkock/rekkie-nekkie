@@ -15,9 +15,10 @@
  *  - a solved step says which step is next, because the form underneath it
  *    silently swapped to that step.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AnswerType, ExerciseAnswer, ExerciseFeedback, ExerciseSessionState, ExerciseWorkState, GeneratedExercise, GeneratedStep, StepValidation } from '../domain/types'
 import type { LearnerStore } from '../store/learner-store'
+import type { SkipReason } from '../analytics/types'
 import { getSkill } from '../domain/knowledge-graph'
 import { ExerciseWidget } from './widgets'
 import { TestBlockView } from './TestBlockView'
@@ -37,6 +38,14 @@ const TIER_LABELS: Record<string, string> = {
 
 /** Hints 1–3 come from the ladder; the 4th press reveals the solution. */
 const HINT_LADDER_LENGTH = 3
+
+/** One tap answers "Waarom sla je deze over?" and skips. */
+const SKIP_CHOICES: Array<{ reason: SkipReason; label: string }> = [
+  { reason: 'too-easy', label: '😎 Te makkelijk' },
+  { reason: 'too-hard', label: '😵 Te moeilijk' },
+  { reason: 'unclear', label: '🤔 Ik snap de vraag niet' },
+  { reason: 'no-reason', label: 'Gewoon overslaan' },
+]
 
 function outcomeOf(validation: StepValidation): Outcome {
   if (validation.isCorrect) return 'correct'
@@ -64,6 +73,15 @@ function ItemView({ store }: { store: LearnerStore }) {
   const setSolved = (value: boolean[]) => updateWork('solved', value)
 
   const answerAreaRef = useRef<HTMLDivElement>(null)
+  const [askingSkip, setAskingSkip] = useState(false)
+  // Re-render when the pause before the next hint is over.
+  const [, setHintTick] = useState(0)
+  const hintWait = store.hintWaitMs()
+  useEffect(() => {
+    if (hintWait <= 0) return
+    const timer = setTimeout(() => setHintTick((n) => n + 1), hintWait + 50)
+    return () => clearTimeout(timer)
+  }, [hintWait, session.hintLevel])
   const step = exercise.steps[stepIndex]!
   const allSolved = solved.every(Boolean)
   const answer = answers[stepIndex]!
@@ -154,8 +172,9 @@ function ItemView({ store }: { store: LearnerStore }) {
     store.nextExercise()
   }
 
-  const skip = () => {
-    store.deferExercise()
+  const skip = (reason: SkipReason) => {
+    setAskingSkip(false)
+    store.deferExercise(reason)
     store.nextExercise()
   }
 
@@ -262,9 +281,9 @@ function ItemView({ store }: { store: LearnerStore }) {
                   type="button"
                   className="btn ghost hint-button"
                   onClick={requestHint}
-                  disabled={solutionVisible}
+                  disabled={solutionVisible || hintWait > 0}
                 >
-                  {hintButtonLabel(session.hintLevel, solutionVisible)}
+                  {hintWait > 0 && !solutionVisible ? '📖 Lees eerst de hint…' : hintButtonLabel(session.hintLevel, solutionVisible)}
                 </button>
                 <div className="hint-slot" aria-live="polite">
                   {hint && (
@@ -303,13 +322,29 @@ function ItemView({ store }: { store: LearnerStore }) {
             </div>
           )}
 
-          {!allSolved && (
+          {!allSolved && !askingSkip && (
             <footer className="exercise-footer">
-              <button type="button" className="btn ghost" onClick={skip}>
+              <button type="button" className="btn ghost" onClick={() => setAskingSkip(true)}>
                 Deze overslaan
               </button>
               <span className="answer-kind">Antwoord: {describeAnswerType(step)}</span>
             </footer>
+          )}
+
+          {!allSolved && askingSkip && (
+            <div className="skip-ask" role="group" aria-labelledby="skip-ask-title">
+              <p id="skip-ask-title" className="skip-ask-title">Waarom sla je deze over?</p>
+              <div className="skip-ask-choices">
+                {SKIP_CHOICES.map((c) => (
+                  <button key={c.reason} type="button" className="btn ghost" onClick={() => skip(c.reason)}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="btn ghost small" onClick={() => setAskingSkip(false)}>
+                Toch niet, ik ga verder
+              </button>
+            </div>
           )}
         </div>
       </section>

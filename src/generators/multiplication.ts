@@ -28,10 +28,13 @@ function canonicalEstimate(a: number, b: number): { value: number; text: string 
   return { value: fa * fb, text: `${fa} × ${fb}` }
 }
 
-function estimateFor(id: string, a: number, b: number, skill: string, exact: number): GeneratedStep {
+function estimateFor(id: string, a: number, b: number, skill: string, exact: number, bridge = false): GeneratedStep {
   const c = canonicalEstimate(a, b)
+  // With help, the prompt shows where the friendly number goes ("195 × 7 ≈
+  // … × 7 ="), without giving away the friendly number itself.
+  const blank = (n: number) => (n >= 10 ? '…' : String(n))
   return estimateStep({
-    id, prompt: `${a} × ${b} ≈`, skill, role: 'supporting',
+    id, prompt: bridge ? `${a} × ${b} ≈ ${blank(a)} × ${blank(b)} =` : `${a} × ${b} ≈`, skill, role: 'supporting',
     solution: `${a} × ${b} ≈ ${c.text} = ${c.value}`,
     accepted: productEstimates(a, b), canonical: c.value, how: `${c.text} = ${c.value}.`, exact,
   })
@@ -312,7 +315,7 @@ function estimate(ctx: GeneratorContext, rng: SeededRng): GeneratedExercise {
       options: shuffleOptions(rng, String(friendlyValues(a)[0]), [String(a), String(a + 100), String(Math.max(1, Math.floor(a / 10)))]),
       answer: String(friendlyValues(a)[0]), solution: `${a} ≈ ${friendlyValues(a)[0]}`, reveals: false,
     })] : []),
-    estimateFor('estimate', a, b, ctx.primarySkillId, exact),
+    estimateFor('estimate', a, b, ctx.primarySkillId, exact, isSupported(ctx)),
   ].map((s) => (s.id === 'estimate' ? { ...s, skillTarget: { skillId: ctx.primarySkillId, role: 'primary' as const } } : s))
   return makeExercise(ctx, rng, {
     archetypeId: 'mul-estimate',
@@ -323,7 +326,9 @@ function estimate(ctx: GeneratorContext, rng: SeededRng): GeneratedExercise {
     representation: 'symbolic',
     variationTags: [twoByTwo ? '2x2' : '1x3', 'type-estimate'],
     explanationNl: [`${a} × ${b} ≈ ${canonicalEstimate(a, b).text} = ${canonicalEstimate(a, b).value}. (Precies is het ${exact}.)`, 'Het teken ≈ betekent: is ongeveer.'],
-    hintsNl: ['Bij het schatten gebruik je passende getallen waarmee je makkelijk kunt rekenen.', `Maak van ${a} een rond getal.`, 'Reken dan uit je hoofd.'],
+    hintsNl: isSupported(ctx)
+      ? ['Zet je passende getal op de puntjes.', `Reken dan ${canonicalEstimate(a, b).text} uit je hoofd.`, `Tip: ${canonicalEstimate(a, b).text.replace(/0+(?= ×|$)/g, '')} en dan de nullen erachter.`]
+      : ['Bij het schatten gebruik je passende getallen waarmee je makkelijk kunt rekenen.', `Maak van ${a} een rond getal.`, 'Reken dan uit je hoofd.'],
     fingerprint: `mulest:${a}x${b}`,
   })
 }

@@ -4,6 +4,9 @@ import type { SavedPractice } from '../domain/practice-types'
 export type PracticeMode = 'curriculum' | 'tables' | 'lesson' | 'proeftoets'
 export type AppScreen = 'home' | 'exercise' | 'progress' | 'path' | 'settings'
 export type ExerciseEnd = 'completed' | 'skipped' | 'stopped' | 'replaced' | 'interrupted'
+/** The one-tap answer to "Waarom sla je deze over?". 'no-reason' = she chose not to say. */
+export type SkipReason = 'too-easy' | 'too-hard' | 'unclear' | 'no-reason'
+export const SKIP_REASONS: readonly SkipReason[] = ['too-easy', 'too-hard', 'unclear', 'no-reason']
 export type UsageAction = 'edit' | 'submit' | 'check_block' | 'hint' | 'reveal' | 'step_select'
   | 'step_focus' | 'selection_note' | 'screen' | 'hidden' | 'visible' | 'restored' | ExerciseEnd
 
@@ -24,6 +27,8 @@ export interface UsageEvent {
   result?: 'correct' | 'incorrect' | 'invalid' | 'blank' | 'blocked' | 'accepted'
   level?: number
   screen?: AppScreen
+  /** On a 'skipped' event: why she skipped, when she said. */
+  reason?: SkipReason
   /** Submitted answers only, bounded; never keystroke contents. */
   answer?: ExerciseAnswer
 }
@@ -84,8 +89,11 @@ export interface ExerciseUsage extends UsageTime {
   hints: number
   revealed: boolean
   reloads: number
-  /** Null until assessed; for blocks, the first-response pass threshold. */
+  /** Null until assessed. Items: every answered step right the first time and
+   *  no answer revealed. Blocks: the first-response pass threshold. */
   firstAttemptCorrect: boolean | null
+  /** Skipped exercises: the reason she tapped (absent in older traces). */
+  skipReason?: SkipReason | null
   steps: StepUsage[]
   events: UsageEvent[]
   droppedEvents: number
@@ -122,6 +130,8 @@ export interface UsageTotals extends UsageTime {
   timedActiveMs: number | null
   /** Counts in <=15s, <=30s, <=1m, <=2m, <=5m, >5m active time. */
   activeTimeBuckets: number[]
+  /** Skips per reason she tapped (absent until the first such skip). */
+  skipReasons?: Partial<Record<SkipReason, number>>
 }
 
 export interface PracticeUsage {

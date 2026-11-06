@@ -19,7 +19,9 @@ export function generateMultiplicationFacts(ctx: GeneratorContext): GeneratedExe
   // S3 is the test format: bare facts under "Reken uit.", as on the test page.
   const test = ctx.tier === 'S3'
   // The test page mixes in a word problem now and then.
-  const story = !supported && !missing && rng.next() < (test ? 0.2 : 0.35)
+  // No word problems for the ×1 table or one box: "1 doosjes met elk 1
+  // potloden" is wrong Dutch and a silly question.
+  const story = !supported && !missing && rng.next() < (test ? 0.2 : 0.35) && table > 1 && multiplier > 1
   const target = missing ? multiplier : product
   const equation = `${multiplier} × ${table} = ${product}`
   const split = Math.min(5, multiplier)

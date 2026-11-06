@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryDriver } from '../../storage/persistence'
 import * as rngModule from '../../engine/rng'
-import { LearnerStore, SESSION_TARGET_ITEMS } from '../learner-store'
+import { HINT_PAUSE_MS, LearnerStore, SESSION_TARGET_ITEMS } from '../learner-store'
 import type { ExerciseSessionState, GeneratedExercise, GeneratedStep } from '../../domain/types'
 import { generateTestBlockFor } from '../../generators'
 
@@ -24,6 +24,26 @@ function solveAll(store: LearnerStore, session: ExerciseSessionState): void {
     const validation = store.submitStepAnswer(step.id, solveAnswer(session.exercise, step))
     expect(validation.isCorrect).toBe(true)
   }
+}
+
+/** Ask for hints until the answer shows, pausing between them as a child must. */
+function revealAnswer(store: LearnerStore): void {
+  for (let i = 0; i < 4; i++) {
+    const s = store.currentSession!
+    if (s.lastHintAt) s.lastHintAt = new Date(Date.parse(s.lastHintAt) - HINT_PAUSE_MS).toISOString()
+    store.requestHint()
+  }
+  expect(store.currentSession!.hintLevel).toBe(4)
+}
+
+/** Keep going until the skill comes up as a test page (never the first item). */
+function untilBlockOf(store: LearnerStore, s: ExerciseSessionState | null, skillId: string): ExerciseSessionState | null {
+  while (s && !(s.exercise.primarySkillId === skillId && s.exercise.format === 'block')) {
+    solveAll(store, s)
+    store.completeExercise()
+    s = store.nextExercise()
+  }
+  return s
 }
 
 describe('LearnerStore end-to-end learning loop', () => {
@@ -96,10 +116,7 @@ describe('LearnerStore end-to-end learning loop', () => {
     const driver = new MemoryDriver()
     const store = new LearnerStore('femke', driver)
     const session = store.startSession()!
-    store.requestHint()
-    store.requestHint()
-    store.requestHint()
-    store.requestHint()
+    revealAnswer(store)
     const skillId = session.exercise.primarySkillId
     const before = store.skillState(skillId)
     for (const step of session.exercise.steps) {
@@ -146,7 +163,7 @@ describe('LearnerStore end-to-end learning loop', () => {
   it('follows a revealed answer with one fresh item of the same skill and tier ("Nu jij")', () => {
     const store = new LearnerStore('sibling', new MemoryDriver())
     const first = store.startSession()!
-    for (let i = 0; i < 4; i++) store.requestHint()
+    revealAnswer(store)
     for (const step of first.exercise.steps) store.submitStepAnswer(step.id, solveAnswer(first.exercise, step))
     store.completeExercise()
 
@@ -157,7 +174,7 @@ describe('LearnerStore end-to-end learning loop', () => {
     expect(sibling.exercise.fingerprint).not.toBe(first.exercise.fingerprint)
 
     // Revealing the sibling too does not chain another sibling.
-    for (let i = 0; i < 4; i++) store.requestHint()
+    revealAnswer(store)
     for (const step of sibling.exercise.steps) store.submitStepAnswer(step.id, solveAnswer(sibling.exercise, step))
     store.completeExercise()
     expect(store.nextExercise()!.isSibling).toBe(false)
@@ -428,12 +445,7 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
     atToetsvorm(store, 'NUM.ROUND.Ten')
     const session = store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-11' })!
     // The lesson has four skills; find the block.
-    let s: ExerciseSessionState | null = session
-    while (s && s.exercise.primarySkillId !== 'NUM.ROUND.Ten') {
-      solveAll(store, s)
-      store.completeExercise()
-      s = store.nextExercise()
-    }
+    const s = untilBlockOf(store, session, 'NUM.ROUND.Ten')
     expect(s).not.toBeNull()
     expect(s!.exercise.format).toBe('block')
     expect(store.requestHint()).toMatch(/geen hulp/)
@@ -458,12 +470,7 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
     const store = new LearnerStore('blok-invalid', new MemoryDriver())
     atToetsvorm(store, 'MONEY.CALC.Add')
     const session = store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-8' })!
-    let s: ExerciseSessionState | null = session
-    while (s && s.exercise.primarySkillId !== 'MONEY.CALC.Add') {
-      solveAll(store, s)
-      store.completeExercise()
-      s = store.nextExercise()
-    }
+    const s = untilBlockOf(store, session, 'MONEY.CALC.Add')
     const answers = Object.fromEntries(s!.exercise.steps.map((st) => [st.id, st.expected]))
     answers[s!.exercise.steps[0]!.id] = 'veel'
     const check = store.submitBlock(answers)
@@ -474,12 +481,8 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
   it('a failed block goes back to practising on her own (S2)', () => {
     const store = new LearnerStore('blok-fail', new MemoryDriver())
     atToetsvorm(store, 'NUM.COMPARE.Symbols')
-    let s: ExerciseSessionState | null = store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-11' })
-    while (s && s.exercise.primarySkillId !== 'NUM.COMPARE.Symbols') {
-      solveAll(store, s)
-      store.completeExercise()
-      s = store.nextExercise()
-    }
+    const s = untilBlockOf(store, store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-11' }), 'NUM.COMPARE.Symbols')
+    expect(s).not.toBeNull()
     store.submitBlock({}, { confirmBlank: true })
     store.completeExercise()
     expect(store.skillState('NUM.COMPARE.Symbols').scaffolding.currentTier).toBe('S2')

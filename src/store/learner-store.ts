@@ -46,7 +46,7 @@ import { validateSnapshot } from '../storage/validate-snapshot'
 
 import { DEFAULT_TABLES, TABLES } from '../generators/multiplication-facts'
 import type { ProeftoetsGroupResult, SessionResult } from '../domain/practice-types'
-import type { AppScreen, ExerciseEnd, ExerciseUsage, PracticeMode, UsageData } from '../analytics/types'
+import type { AppScreen, ExerciseEnd, ExerciseUsage, PracticeMode, SkipReason, UsageData } from '../analytics/types'
 import {
   APP_VERSION, ExerciseRecorder, emptyTime, finalizeExercise, finishPractice, newStepUsage, newUsage,
   PROFILE_BUDGET_BYTES, pruneUsage, shrinkUsage, SNAPSHOT_TARGET_BYTES, systemClock,
@@ -56,6 +56,13 @@ import {
 export type { PracticeMode } from '../analytics/types'
 export type { ProeftoetsGroupResult, SessionResult } from '../domain/practice-types'
 export const SESSION_TARGET_ITEMS = 8
+/** The next hint waits this long after the previous one, so it gets read
+ *  (she clicked through all three hints to the answer in two seconds). */
+export const HINT_PAUSE_MS = 5_000
+/** A supported (S0/S1) item answered right first time, without hints, within
+ *  this much active time per step shows she already knows it: go straight
+ *  to Zelf (S2), where her answers count fully. */
+export const FLUENT_MS_PER_STEP = 15_000
 /** Her class is in blok 2 (October 2026); a parent can change it in Instellingen. */
 export const DEFAULT_BLOK_ID = 'blok-2'
 
@@ -602,13 +609,16 @@ export class LearnerStore {
     // reduces support below the fade ladder's current tier.
     const startTier = chooseStartTier(state)
     const managedTier = state.scaffolding.currentTier
-    const tier: ScaffoldTier = sibling
+    let tier: ScaffoldTier = sibling
       ? sibling.tier
       : state.exposureCount === 0
         ? 'S0'
         : tierIndex(startTier) > tierIndex(managedTier)
           ? startTier
           : managedTier
+    // Never open a session with a whole test page: she quit one within a
+    // minute. The first item is a single "Zelf" item; test pages follow.
+    if (tier === 'S3' && this.sessionItemsDone === 0) tier = 'S2'
     const band =
       selection.purpose === 'review'
         ? 'standard'
@@ -865,9 +875,13 @@ export class LearnerStore {
     while (ladder.length < 3) ladder.push(generic[ladder.length]!)
 
     if (session.hintLevel >= 4) return 'Hier zie je het antwoord.'
+    // Pause between hints: a quick second press shows the same hint again.
+    if (session.hintLevel > 0 && this.hintWaitMs() > 0) return ladder[session.hintLevel - 1]!
     session.hintLevel = Math.min(4, session.hintLevel + 1)
+    session.lastHintAt = new Date(this.clock.now()).toISOString()
     this.recorder?.hint(session.hintLevel, session.exercise.steps[session.work.stepIndex]!.id)
     if (session.hintLevel >= 4) {
+      session.revealedAt = session.lastHintAt
       session.evidenceWeight = EVIDENCE_WEIGHTS.revealed
       if (checkpoint) this.persist()
       return 'Hier zie je het antwoord.'
@@ -877,6 +891,13 @@ export class LearnerStore {
     }
     if (checkpoint) this.persist()
     return ladder[session.hintLevel - 1]!
+  }
+
+  /** Milliseconds until the next hint can be shown (0 = now). */
+  hintWaitMs(): number {
+    const last = this.currentSession?.lastHintAt
+    if (!last) return 0
+    return Math.max(0, Date.parse(last) + HINT_PAUSE_MS - this.clock.now())
   }
 
   /**
@@ -967,6 +988,9 @@ export class LearnerStore {
       const step = ex.steps.find((s) => s.id === r.stepId)
       if (!step || isBlock || countsAsPrimary(step.id) || r.outcome === 'unknown') continue
       const supportingState = this.skillState(step.skillTarget.skillId)
+      // A step answered before the reveal is her own work; one answered after
+      // it was made with the answer in view (unknown timing: assume after).
+      const afterReveal = revealed && (!session.revealedAt || !r.firstSubmittedAt || r.firstSubmittedAt >= session.revealedAt)
       const sub = applyObservationToSkill(supportingState, {
         skillId: step.skillTarget.skillId,
         exerciseId: ex.id,
@@ -976,8 +1000,8 @@ export class LearnerStore {
           independent: false,
           firstCommittedResponse: true,
           attributable: true,
-          answerRevealed: revealed,
-          weight: EVIDENCE_WEIGHTS.attributableSubStep,
+          answerRevealed: afterReveal,
+          weight: afterReveal ? EVIDENCE_WEIGHTS.revealed : EVIDENCE_WEIGHTS.attributableSubStep,
         },
         scaffold: session.currentScaffold,
         representation: ex.representation,
@@ -994,6 +1018,15 @@ export class LearnerStore {
       this.snapshot.skills[step.skillTarget.skillId] = sub.state
       this.snapshot.observations.push(sub.observation)
     }
+
+    // Every answered step right the first time, and nothing revealed.
+    const answeredSteps = session.steps.filter((r) => r.outcome !== 'unknown')
+    const allFirstCorrect = !revealed && answeredSteps.length > 0 && answeredSteps.every((r) => r.outcome === 'correct')
+    const trace = this.recorder?.trace
+    const fluent = !isBlock && (session.currentScaffold === 'S0' || session.currentScaffold === 'S1')
+      && primaryCorrect && allFirstCorrect && session.hintLevel === 0
+      && answeredSteps.length === ex.steps.length
+      && !!trace && trace.timingReliable && trace.activeMs <= FLUENT_MS_PER_STEP * ex.steps.length
 
     // --- Mastery promotion & lapse confirmation (only for assessed items) ---
     const node = getSkill(ex.primarySkillId)
@@ -1021,6 +1054,10 @@ export class LearnerStore {
       } else if (isBlock && primaryCorrect) {
         // Maatwerk is done once the skill passes in test format again.
         this.snapshot.focusSkills = (this.snapshot.focusSkills ?? []).filter((id) => id !== ex.primarySkillId)
+      } else if (fluent) {
+        // She clearly knows it already: skip the rest of the guided path.
+        sc.currentTier = 'S2'
+        sc.qualifyingSuccessStreak = 0
       } else if (primaryCorrect && eligibility.weight > 0) {
         const fade = decideFade(applied.state)
         if (fade.fade) {
@@ -1062,7 +1099,7 @@ export class LearnerStore {
     this.snapshot.totalExercisesCompleted += 1
 
     const usageId = this.recorder?.trace.id ?? session.id
-    this.finishUsage('completed', primaryAnswered ? primaryCorrect : null)
+    this.finishUsage('completed', primaryAnswered ? (isBlock ? primaryCorrect : primaryCorrect && allFirstCorrect) : null)
     this.sessionItemsDone += 1
     this.currentSession = null
     if (this.sessionItemsDone >= this.sessionTargetItems) finishPractice(this.usage, 'completed', this.clock.now())
@@ -1110,9 +1147,11 @@ export class LearnerStore {
       && this.sessionItemsDone < this.sessionTargetItems
   }
 
-  /** Stop without penalty: unfinished work is preserved, no negative update. */
-  deferExercise(): void {
+  /** Stop without penalty: unfinished work is preserved, no negative update.
+   *  `reason` is her one-tap answer to "Waarom sla je deze over?". */
+  deferExercise(reason: SkipReason | null = null): void {
     if (!this.currentSession) return
+    if (this.recorder) this.recorder.trace.skipReason = reason
     const ex = this.currentSession.exercise
     // Remember the fingerprint so a skip does not immediately re-serve the
     // same generated item.
