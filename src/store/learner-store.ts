@@ -897,7 +897,9 @@ export class LearnerStore {
   hintWaitMs(): number {
     const last = this.currentSession?.lastHintAt
     if (!last) return 0
-    return Math.max(0, Date.parse(last) + HINT_PAUSE_MS - this.clock.now())
+    const wait = Date.parse(last) + HINT_PAUSE_MS - this.clock.now()
+    // A restored or clock-shifted timestamp must never lock the hint button.
+    return Number.isFinite(wait) && wait > 0 && wait <= HINT_PAUSE_MS ? wait : 0
   }
 
   /**

@@ -66,10 +66,19 @@ describe('skip reasons', () => {
     expect(b!.skipReason).toBe('too-easy')
     expect(c!.skipReason).toBeNull()
     expect(store.usage.lifetime.skipped).toBe(3)
-    expect(store.usage.lifetime.skipReasons).toEqual({ 'too-hard': 1, 'too-easy': 1 })
+    expect(store.usage.lifetime).toMatchObject({ skipsTooHard: 1, skipsTooEasy: 1 })
+    expect(store.usage.lifetime.skipsUnclear).toBeUndefined()
+    // Rollback safety: earlier app versions reject any totals field that is
+    // not a plain number (they would lock saving), so keep totals flat.
+    for (const totals of [store.usage.lifetime, ...store.usage.daily.map((d) => d.totals), ...store.usage.bySkill.map((d) => d.totals)]) {
+      for (const [key, value] of Object.entries(totals)) {
+        if (key === 'activeTimeBuckets') continue
+        expect(typeof value === 'number' || (key === 'timedActiveMs' && value === null), key).toBe(true)
+      }
+    }
     const reloaded = new LearnerStore('fixes', driver, clock)
     expect(reloaded.storageIssue).toBeNull()
-    expect(reloaded.usage.lifetime.skipReasons).toEqual({ 'too-hard': 1, 'too-easy': 1 })
+    expect(reloaded.usage.lifetime).toMatchObject({ skipsTooHard: 1, skipsTooEasy: 1 })
   })
 })
 

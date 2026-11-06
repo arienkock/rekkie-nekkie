@@ -41,8 +41,7 @@ export function validateSnapshot(value: unknown): asserts value is LearnerSnapsh
       }
       require(total.activeTimeBuckets.every(finite))
       for (const [key, count] of Object.entries(total)) {
-        if (key === 'skipReasons') require(record(count) && Object.values(count).every(finite))
-        else if (key !== 'activeTimeBuckets') require(finite(count) || (key === 'timedActiveMs' && count === null))
+        if (key !== 'activeTimeBuckets') require(finite(count) || (key === 'timedActiveMs' && count === null))
       }
     }
     require(usage.currentPractice === null || record(usage.currentPractice))

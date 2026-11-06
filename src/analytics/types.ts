@@ -7,6 +7,11 @@ export type ExerciseEnd = 'completed' | 'skipped' | 'stopped' | 'replaced' | 'in
 /** The one-tap answer to "Waarom sla je deze over?". 'no-reason' = she chose not to say. */
 export type SkipReason = 'too-easy' | 'too-hard' | 'unclear' | 'no-reason'
 export const SKIP_REASONS: readonly SkipReason[] = ['too-easy', 'too-hard', 'unclear', 'no-reason']
+/** Totals counter per reason. Plain numbers on purpose: earlier app versions
+ *  accept any extra numeric totals field, but reject nested objects. */
+export const SKIP_REASON_COUNTERS = {
+  'too-easy': 'skipsTooEasy', 'too-hard': 'skipsTooHard', unclear: 'skipsUnclear', 'no-reason': 'skipsNoReason',
+} as const satisfies Record<SkipReason, string>
 export type UsageAction = 'edit' | 'submit' | 'check_block' | 'hint' | 'reveal' | 'step_select'
   | 'step_focus' | 'selection_note' | 'screen' | 'hidden' | 'visible' | 'restored' | ExerciseEnd
 
@@ -130,8 +135,11 @@ export interface UsageTotals extends UsageTime {
   timedActiveMs: number | null
   /** Counts in <=15s, <=30s, <=1m, <=2m, <=5m, >5m active time. */
   activeTimeBuckets: number[]
-  /** Skips per reason she tapped (absent until the first such skip). */
-  skipReasons?: Partial<Record<SkipReason, number>>
+  /** Skips per reason she tapped (each absent until its first such skip). */
+  skipsTooEasy?: number
+  skipsTooHard?: number
+  skipsUnclear?: number
+  skipsNoReason?: number
 }
 
 export interface PracticeUsage {

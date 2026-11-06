@@ -46,7 +46,8 @@ first responses. It is null for unassessed, skipped or stopped exercises.
 tap: `too-easy`, `too-hard`, `unclear` (does not understand the question) or
 `no-reason` ("Gewoon overslaan"). The answer is stored as `skipReason` on the
 exercise, as `reason` on its `skipped` event, and counted per reason in
-`totals.skipReasons` (absent until the first such skip). Skips from before this
+`totals.skipsTooEasy`, `skipsTooHard`, `skipsUnclear` and `skipsNoReason` (each
+absent until its first such skip). Skips from before this
 change have no `skipReason`.
 
 **Hint pacing.** After a hint, the next one (and the answer) waits five seconds;
