@@ -13,6 +13,11 @@
  *    and are scrolled into view, because the keyboard may still be open;
  *  - empty or unreadable answers name the item and offer a button to go
  *    there, instead of leaving her to search a long page.
+ *
+ * A page with nothing filled in is never scored: she used "Toch nakijken" on
+ * empty pages to get past them, which counted as failed tests on tables she
+ * knows. An empty page points to "Deze overslaan" instead: every practice
+ * page has its own skip button (a proeftoets has none: it can be stopped).
  */
 import { useEffect, useRef, useState } from 'react'
 import type { ExerciseAnswer } from '../domain/types'
@@ -21,10 +26,13 @@ import { getSkill } from '../domain/knowledge-graph'
 import { BLOCK_PASS_FRACTION, blockPassed } from '../generators/test-block'
 import { ExerciseWidget } from './widgets'
 import { StepInput } from './ExerciseView'
+import { SkipAsk } from './SkipAsk'
+import type { SkipReason } from '../analytics/types'
 
 /** What the last press of "Klaar, nakijken" found, until the next press. */
 interface CheckNotice {
-  kind: 'invalid' | 'blank'
+  /** `empty`: nothing at all is filled in (practice pages only). */
+  kind: 'invalid' | 'blank' | 'empty'
   stepIds: string[]
   /** What the check said per step. Never re-validated while she edits: that
    *  would tell her an answer is right before the page is checked. */
@@ -44,6 +52,7 @@ export function TestBlockView({ store }: { store: LearnerStore }) {
   const checked = session.phase === 'feedback'
   const [notice, setNotice] = useState<CheckNotice | null>(null)
   const [edited, setEdited] = useState<string[]>([])
+  const [askingSkip, setAskingSkip] = useState(false)
   const listRef = useRef<HTMLOListElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
   const target = store.sessionTargetItems
@@ -68,10 +77,12 @@ export function TestBlockView({ store }: { store: LearnerStore }) {
     const result = store.submitBlock(map, { confirmBlank })
     setEdited([])
     const messages = Object.fromEntries(Object.entries(result.results).map(([id, v]) => [id, v.feedbackNl]))
+    const empty = result.blank.length === exercise.steps.length && store.practiceMode !== 'proeftoets'
     setNotice(
-      result.invalid.length > 0 ? { kind: 'invalid', stepIds: result.invalid, messages }
-        : result.blank.length > 0 && !confirmBlank ? { kind: 'blank', stepIds: result.blank, messages }
-          : null,
+      empty ? { kind: 'empty', stepIds: result.blank, messages }
+        : result.invalid.length > 0 ? { kind: 'invalid', stepIds: result.invalid, messages }
+          : result.blank.length > 0 && !confirmBlank ? { kind: 'blank', stepIds: result.blank, messages }
+            : null,
     )
     // Close the keyboard: the page is checked, or the notice needs reading.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
@@ -95,12 +106,19 @@ export function TestBlockView({ store }: { store: LearnerStore }) {
     store.nextExercise()
   }
 
+  const skip = (reason: SkipReason) => {
+    setAskingSkip(false)
+    store.deferExercise(reason)
+    store.nextExercise()
+  }
+
   const correct = session.steps.filter((r) => r.outcome === 'correct').length
   const total = exercise.steps.length
   const passed = blockPassed(correct, total)
   const isProeftoets = store.practiceMode === 'proeftoets'
   const twoColumns = exercise.steps.every((s) => !s.widget && SHORT_ANSWERS.has(s.answerType.kind))
-  const flagged = (id: string) => !checked && notice?.stepIds.includes(id) === true
+  // An empty page is not six mistakes: no red markers, just the way out.
+  const flagged = (id: string) => !checked && notice?.kind !== 'empty' && notice?.stepIds.includes(id) === true
   const firstFlagged = notice ? numberOf(notice.stepIds[0]!) : 0
 
   return (
@@ -160,17 +178,24 @@ export function TestBlockView({ store }: { store: LearnerStore }) {
         </ol>
 
         <div className="block-footer" ref={footerRef}>
-          {!checked ? (
+          {!checked && askingSkip ? (
+            <SkipAsk onSkip={skip} onCancel={() => setAskingSkip(false)} />
+          ) : !checked ? (
             <>
               <div className="btn-row">
                 <button type="button" className="btn primary big" onClick={() => check()}>Klaar, nakijken</button>
+                {!isProeftoets && (
+                  <button type="button" className="btn ghost" onClick={() => setAskingSkip(true)}>Deze overslaan</button>
+                )}
               </div>
               {notice && (
-                <div className={`block-notice ${notice.kind}`} role="status">
+                <div className={`block-notice ${notice.kind === 'empty' ? 'blank' : notice.kind}`} role="status">
                   <p>
-                    {notice.kind === 'invalid'
-                      ? `${itemList(notice.stepIds.map(numberOf))}: dat kan ik niet lezen. Schrijf ${notice.stepIds.length > 1 ? 'ze' : 'het'} nog even goed op.`
-                      : `${itemList(notice.stepIds.map(numberOf))} ${notice.stepIds.length > 1 ? 'zijn' : 'is'} nog leeg.`}
+                    {notice.kind === 'empty'
+                      ? 'Je hebt nog niets ingevuld. Maak de opgaven, of kies hierboven "Deze overslaan".'
+                      : notice.kind === 'invalid'
+                        ? `${itemList(notice.stepIds.map(numberOf))}: dat kan ik niet lezen. Schrijf ${notice.stepIds.length > 1 ? 'ze' : 'het'} nog even goed op.`
+                        : `${itemList(notice.stepIds.map(numberOf))} ${notice.stepIds.length > 1 ? 'zijn' : 'is'} nog leeg.`}
                   </p>
                   <div className="btn-row">
                     <button type="button" className="btn" onClick={() => focusItem(firstFlagged - 1)}>

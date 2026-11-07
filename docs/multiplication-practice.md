@@ -35,6 +35,21 @@ scheduler could preferentially revisit facts such as 7 × 8 without changing the
 practice route or evidence UI. Stars measure the existing accuracy/variation and
 retention rules; they should not be described as a direct measure of recall speed.
 
+## Tables she already knows
+
+A table counts as known from Level 2 (passed in test format, on her own, on
+two days). In a tables session a known table gets at most one test page; its
+other items are single "Zelf" items. When every chosen table is known, Vandaag
+and the session summary suggest the next table in the order 1, 10, 2, 5, 4, 3,
+6, 9, 8, 7 (anchors first, then tables built from them), skipping tables she
+already knows. On Vandaag the button adds it to her choice; on the summary it
+starts a session with it. Nothing is removed from her choice.
+
+On a test page, lines with the same instruction stay together and
+missing-number lines come last, under "Vul de ontbrekende getallen in." with a
+box for the gap (□ × 10 = 30). On a mixed page she had answered 4 × 10 with 4
+and □ × 10 = 60 with 60.
+
 ## Evidence and limits
 
 - [WWC, Assisting Students Struggling with Mathematics (2021), recommendations 3–4](https://ies.ed.gov/ncee/wwc/practiceguide/26)

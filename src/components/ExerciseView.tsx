@@ -22,6 +22,7 @@ import type { SkipReason } from '../analytics/types'
 import { getSkill } from '../domain/knowledge-graph'
 import { ExerciseWidget } from './widgets'
 import { TestBlockView } from './TestBlockView'
+import { SkipAsk } from './SkipAsk'
 
 type Answer = ExerciseAnswer
 type FeedbackState = ExerciseFeedback
@@ -38,14 +39,6 @@ const TIER_LABELS: Record<string, string> = {
 
 /** Hints 1–3 come from the ladder; the 4th press reveals the solution. */
 const HINT_LADDER_LENGTH = 3
-
-/** One tap answers "Waarom sla je deze over?" and skips. */
-const SKIP_CHOICES: Array<{ reason: SkipReason; label: string }> = [
-  { reason: 'too-easy', label: '😎 Te makkelijk' },
-  { reason: 'too-hard', label: '😵 Te moeilijk' },
-  { reason: 'unclear', label: '🤔 Ik snap de vraag niet' },
-  { reason: 'no-reason', label: 'Gewoon overslaan' },
-]
 
 function outcomeOf(validation: StepValidation): Outcome {
   if (validation.isCorrect) return 'correct'
@@ -331,21 +324,7 @@ function ItemView({ store }: { store: LearnerStore }) {
             </footer>
           )}
 
-          {!allSolved && askingSkip && (
-            <div className="skip-ask" role="group" aria-labelledby="skip-ask-title">
-              <p id="skip-ask-title" className="skip-ask-title">Waarom sla je deze over?</p>
-              <div className="skip-ask-choices">
-                {SKIP_CHOICES.map((c) => (
-                  <button key={c.reason} type="button" className="btn ghost" onClick={() => skip(c.reason)}>
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-              <button type="button" className="btn ghost small" onClick={() => setAskingSkip(false)}>
-                Toch niet, ik ga verder
-              </button>
-            </div>
-          )}
+          {!allSolved && askingSkip && <SkipAsk onSkip={skip} onCancel={() => setAskingSkip(false)} />}
         </div>
       </section>
     </div>

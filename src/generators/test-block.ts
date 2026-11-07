@@ -46,6 +46,13 @@ export function generateTestBlock(ctx: GeneratorContext, generate: Generator, si
     seen.add(ex.fingerprint)
     items.push(ex)
   }
+  // Lines with the same instruction stay together, as on the book's pages,
+  // and missing-number lines come last: "4 × 10 =" first, then "□ × 10 = 30",
+  // never mixed (she answered 4 × 10 with 4 on a mixed page).
+  const groupOf = new Map<string, number>()
+  for (const ex of items) if (!groupOf.has(ex.instructionNl)) groupOf.set(ex.instructionNl, groupOf.size)
+  const rank = (ex: GeneratedExercise) => (ex.variationTags.includes('missing-factor') ? 1000 : 0) + groupOf.get(ex.instructionNl)!
+  items.sort((a, b) => rank(a) - rank(b))
   const shared = items.every((ex) => ex.instructionNl === first.instructionNl)
   const steps: GeneratedStep[] = items.flatMap((ex, n) =>
     ex.steps.map((s, k) => ({

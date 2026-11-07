@@ -42,7 +42,9 @@ describe('screens render for every skill', () => {
       expect(html).toContain('Klaar, nakijken')
       expect(html).not.toContain('Hint')
       // After checking: every line marked, right answers shown for wrong ones.
-      store.submitBlock({}, { confirmBlank: true })
+      // (A page with nothing filled in is never checked, so answer one line.)
+      const last = block.steps[block.steps.length - 1]!
+      store.submitBlock({ [last.id]: last.expected }, { confirmBlank: true })
       html = renderToString(createElement(ExerciseView, { store }))
       expect(html).toContain('Goed antwoord')
     })

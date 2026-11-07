@@ -50,6 +50,25 @@ exercise, as `reason` on its `skipped` event, and counted per reason in
 absent until its first such skip). Skips from before this
 change have no `skipReason`.
 
+**Empty test pages.** A practice test page with nothing filled in cannot be
+checked: it says so and points to "Deze overslaan", which every practice test
+page now has (with the same skip question). Before November 2026 an empty page
+could be checked with "Toch nakijken" and counted as a failed test. On load,
+such pages (every line only ever submitted blank, practice mode, not a
+proeftoets) have their observation marked `voidedReason: "empty-test-page"`,
+and the skill's score, counters, coverage and gate window are restored as if
+the page had been skipped (`src/store/repair-empty-pages.ts`). Their usage
+records are left as they happened. A page with at least one answer is still a
+real test, and blank lines on it count as wrong. A proeftoets page is still
+checked when empty.
+
+**Updates.** The build writes `version.json` next to `index.html`. An open tab
+compares it with its own `appVersion` when the page comes back into view, and
+every 15 minutes while visible. It reloads itself only on Vandaag or a finished
+session's summary (work is saved first and resumes), never during an exercise,
+and tries each new version at most once per 15 minutes. Exports from before
+this change can show an old `appVersion` for days after a deploy.
+
 **Hint pacing.** After a hint, the next one (and the answer) waits five seconds;
 a press during the pause shows the same hint again and is not counted.
 The first parseable committed response remains the learning evidence even after

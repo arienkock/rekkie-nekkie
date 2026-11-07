@@ -483,7 +483,9 @@ describe('LearnerStore: test format, lessons and practice tests', () => {
     atToetsvorm(store, 'NUM.COMPARE.Symbols')
     const s = untilBlockOf(store, store.startSession('lesson', DEFAULT_TABLES_FOR_TEST, { lessonId: '2-11' }), 'NUM.COMPARE.Symbols')
     expect(s).not.toBeNull()
-    store.submitBlock({}, { confirmBlank: true })
+    // One line right, the rest left empty and checked anyway: failed.
+    const first = s!.exercise.steps[0]!
+    store.submitBlock({ [first.id]: first.expected }, { confirmBlank: true })
     store.completeExercise()
     expect(store.skillState('NUM.COMPARE.Symbols').scaffolding.currentTier).toBe('S2')
   })

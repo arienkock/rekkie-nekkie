@@ -1666,6 +1666,8 @@ main > .path-view {
 .practice-choice p { line-height: 1.5; }
 .practice-icon { font-size: 2rem; }
 .resume-practice { padding: 1rem; background: #f0edf9; border-radius: 1rem; }
+.table-nudge { margin: .75rem 0; padding: .8rem 1rem; background: #fff7e0; border: 2px solid #f2c94c; border-radius: 1rem; }
+.table-nudge p { margin: 0 0 .6rem; }
 .table-picker { padding: 0; border: 0; margin: 1rem 0; }
 .table-picker legend { margin-bottom: .6rem; font-weight: 600; }
 .table-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }

@@ -3,13 +3,15 @@
  * summary, and progress dashboard. All client-side; progress persists in
  * localStorage via the LearnerStore.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLearnerStore } from './hooks/use-learner-store'
 import { useViewportFit } from './hooks/use-viewport-fit'
+import { useAppUpdate } from './hooks/use-app-update'
 import { ExerciseView } from './components/ExerciseView'
 import { ProgressView } from './components/ProgressView'
 import { PathView } from './components/PathView'
 import { DEFAULT_TABLES, TABLES } from './generators/multiplication-facts'
+import { TableNudge } from './components/TableNudge'
 import { DEFAULT_BLOK_ID } from './store/learner-store'
 import type { PracticeMode } from './store/learner-store'
 import type { LearnerStore } from './store/learner-store'
@@ -27,6 +29,12 @@ export default function App() {
   useEffect(() => setTables(preferredTables ?? DEFAULT_TABLES), [preferredTables])
   // Keep the visible layout in sync with browser chrome and the OSK.
   useViewportFit()
+  // A tab left open for days still gets new versions: only on Vandaag or a
+  // finished session's summary, never during an exercise.
+  useAppUpdate(
+    { atRest: view === 'home' || (view === 'exercise' && !store.currentSession), onHome: view === 'home' },
+    () => store.persist(),
+  )
 
   // The "minder beweging" preference is a setting, not just an OS hint: mirror
   // it onto the document so the stylesheet can switch off entrances and
@@ -67,6 +75,18 @@ export default function App() {
     setTables(selected)
     store.savePreferences({ selectedTables: selected })
   }
+
+  /** "Probeer de tafel van 2": add it to her choice and start right away. */
+  const tryTable = (table: number) => {
+    if (store.storageIssue) return
+    if (store.currentSession && !window.confirm('Je sessie is nog niet klaar. Wil je een nieuwe sessie beginnen?')) return
+    const selected = [...new Set([...tables, table])].sort((a, b) => a - b)
+    setTables(selected)
+    store.savePreferences({ selectedTables: selected })
+    store.startSession('tables', selected)
+    setView('exercise')
+  }
+  const tableLevel = (table: number) => store.snapshot.skills[`MUL.FACT.T${table}`]?.currentVerifiedLevel
 
   const nickname = store.snapshot.preferences.nickname ?? ''
 
@@ -163,6 +183,7 @@ export default function App() {
                       ))}
                     </div>
                   </fieldset>
+                  <TableNudge selected={tables} levelOf={tableLevel} action="add" onChoose={toggleTable} />
                   {store.currentSession && <p className="muted">Je keuze geldt voor een nieuwe sessie. Ga verder om je huidige sessie af te maken.</p>}
                   {tables.length === 0 && <p className="muted">Kies minstens één tafel.</p>}
                   <button type="button" className="btn primary big" disabled={tables.length === 0} onClick={() => start('tables')}>
@@ -185,7 +206,10 @@ export default function App() {
           (store.currentSession ? (
             <ExerciseView key={store.currentSession.id} store={store} />
           ) : (
-            <SessionSummary store={store} onStart={() => start()} onResume={resume} onProgress={() => setView('path')} onHome={() => setView('home')} />
+            <SessionSummary store={store} onStart={() => start()} onResume={resume} onProgress={() => setView('path')} onHome={() => setView('home')}
+              nudge={store.practiceMode === 'tables'
+                ? <TableNudge selected={tables} levelOf={tableLevel} action="start" onChoose={tryTable} />
+                : null} />
           ))}
 
         {view === 'progress' && <ProgressView store={store} />}
@@ -214,12 +238,15 @@ function SessionSummary({
   onResume,
   onProgress,
   onHome,
+  nudge = null,
 }: {
   store: LearnerStore
   onStart: () => void
   onResume: () => void
   onProgress: () => void
   onHome: () => void
+  /** Shown above the buttons, e.g. the next table to try. */
+  nudge?: ReactNode
 }) {
   const results = store.sessionResults
   const made = results.filter((r) => !r.skipped).length
@@ -292,6 +319,7 @@ function SessionSummary({
           ? '⚠️ Je voortgang kon niet worden opgeslagen. Probeer later opnieuw.'
           : 'Je voortgang is opgeslagen.'}
       </p>
+      {nudge}
       <div className="btn-row">
         <button type="button" className="btn primary" onClick={onStart}>
           Nog een sessie

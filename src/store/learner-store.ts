@@ -43,8 +43,9 @@ import {
   type StorageDriver,
 } from '../storage/persistence'
 import { validateSnapshot } from '../storage/validate-snapshot'
+import { voidEmptyTestPages } from './repair-empty-pages'
 
-import { DEFAULT_TABLES, TABLES } from '../generators/multiplication-facts'
+import { DEFAULT_TABLES, TABLES, tableKnown } from '../generators/multiplication-facts'
 import type { ProeftoetsGroupResult, SessionResult } from '../domain/practice-types'
 import type { AppScreen, ExerciseEnd, ExerciseUsage, PracticeMode, SkipReason, UsageData } from '../analytics/types'
 import {
@@ -315,6 +316,10 @@ export class LearnerStore {
     // Skills added to the graph after this profile was created start fresh.
     for (const node of KNOWLEDGE_GRAPH) this.snapshot.skills[node.id] ??= newSkillState(node.id)
     this.snapshot.focusSkills ??= []
+    // Test pages handed in completely empty were never attempts (see
+    // repair-empty-pages.ts). Idempotent: voided pages are skipped next time.
+    voidEmptyTestPages(this.snapshot, (id) => KNOWLEDGE_GRAPH.find((n) => n.id === id)?.criticalVariationTags ?? [],
+      new Date(this.clock.now()))
   }
 
   /** Freshness is derived, never authoritative: recompute from due dates. */
@@ -619,6 +624,10 @@ export class LearnerStore {
     // Never open a session with a whole test page: she quit one within a
     // minute. The first item is a single "Zelf" item; test pages follow.
     if (tier === 'S3' && this.sessionItemsDone === 0) tier = 'S2'
+    // A table she already knows gets one test page per session, not a page
+    // every other item: pages of x1 she knows were what she started leaving empty.
+    if (tier === 'S3' && this.practiceMode === 'tables' && tableKnown(state.currentVerifiedLevel)
+      && this.testPagesThisSession(selection.skillId) > 0) tier = 'S2'
     const band =
       selection.purpose === 'review'
         ? 'standard'
@@ -668,6 +677,13 @@ export class LearnerStore {
       return null
     }
     return this.present(exercise, exercise.recipe?.tier ?? tier, sibling !== null, sibling?.usageId ?? null)
+  }
+
+  /** Test pages of this skill served so far in the running session. */
+  private testPagesThisSession(skillId: SkillId): number {
+    const id = this.usage.currentPractice?.id
+    if (!id) return 0
+    return this.usage.exercises.filter((e) => e.practiceId === id && e.skillId === skillId && e.format === 'block').length
   }
 
   /**
@@ -809,6 +825,8 @@ export class LearnerStore {
    * notation records nothing: the child fixes it and checks again. Blank
    * answers first come back as `blank` (nothing recorded); once she chooses
    * to check anyway (`confirmBlank`), they count as wrong, as on a test.
+   * A practice page that is entirely empty is never checked (it is skipped
+   * instead); in a proeftoets it is checked like any test page.
    */
   submitBlock(answers: Record<string, ExerciseAnswer>, { confirmBlank = false }: { confirmBlank?: boolean } = {}): BlockCheck {
     const session = this.currentSession
@@ -828,7 +846,10 @@ export class LearnerStore {
       if (validation.invalidFormat) invalid.push(step.id)
       results[step.id] = validation
     }
-    const blocked = invalid.length > 0 || (blank.length > 0 && !confirmBlank)
+    // A practice page with nothing filled in is not a failed test: she was
+    // getting past pages that way. It is never checked; she can skip it.
+    const empty = blank.length === session.exercise.steps.length && this.practiceMode !== 'proeftoets'
+    const blocked = invalid.length > 0 || (blank.length > 0 && !confirmBlank) || empty
     this.recorder?.activity()
     this.recorder?.event('check_block', { result: blocked ? 'blocked' : 'accepted' }, true)
     for (const step of session.exercise.steps) {
